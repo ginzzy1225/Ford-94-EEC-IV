@@ -1,0 +1,374 @@
+"""Talking to the EEC-IV bridge, and turning self-test pulses into codes.
+
+The bridge (arduino/eec_bridge) reports every change of the Self-Test Output line with a
+millisecond timestamp from the Nano's clock. Everything here works on those timestamps, so a
+saved log can be decoded again later (--replay) with different timing limits.
+
+How the EEC-IV sends a code (docs/self-test.md has the full picture):
+  - each digit is a run of half-second pulses, ten pulses meaning 0
+  - about 2 s between the digits of one code, about 4 s between codes
+  - very short "fast code" pulses at the start, meant for factory testers: ignored here
+  - key on engine off: on-demand codes, ~6-9 s pause, ONE separator pulse, ~6-9 s pause,
+    then the continuous-memory codes. 111 means nothing found.
+  - engine running: the engine ID (4 pulses on a V8), then on many engines one single pulse
+    asking for a quick wide-open throttle snap, then the running codes.
+"""
+
+import json
+import time
+
+USB_BAUD = 115200
+BANNER = "EECBRIDGE"
+
+
+class Timing:
+    """Limits used to sort gaps and pulses. All in milliseconds."""
+
+    def __init__(self, min_pulse=150, max_pulse=2500, digit_gap=1200, code_gap=3000, section_gap=5500):
+        self.min_pulse = min_pulse      # shorter than this: fast codes or noise, ignored
+        self.max_pulse = max_pulse      # longer than this: not a code pulse
+        self.digit_gap = digit_gap      # a gap at least this long ends a digit
+        self.code_gap = code_gap        # ... ends a code
+        self.section_gap = section_gap  # ... ends a section (around the separator pulse)
+
+    def as_dict(self):
+        return dict(vars(self))
+
+
+# --- pulses and codes ---------------------------------------------------------------------------
+
+def edges_to_pulses(edges, timing, end_ms=None):
+    """edges: [(ms, active)]. Returns (pulses [(start, end)], long_pulses [(start, end)])."""
+    pulses, long_pulses = [], []
+    start = None
+    for ms, active in edges:
+        if active and start is None:
+            start = ms
+        elif not active and start is not None:
+            dur = ms - start
+            if dur > timing.max_pulse:
+                long_pulses.append((start, ms))
+            elif dur >= timing.min_pulse:
+                pulses.append((start, ms))
+            start = None
+    if start is not None and end_ms is not None and end_ms - start > timing.max_pulse:
+        long_pulses.append((start, end_ms))
+    return pulses, long_pulses
+
+
+def group_pulses(pulses, timing):
+    """Pulses -> tokens. A token is one code: {'digits': [...], 'start', 'end', 'section'}.
+    'section' counts the long pauses before it, so the separator stands out."""
+    tokens = []
+    section = 0
+    digits, count = [], 0
+    tok_start = prev_end = None
+
+    def close_digit():
+        nonlocal count
+        if count:
+            digits.append(0 if count == 10 else count)  # more than 10 is kept as is; flagged later
+        count = 0
+
+    def close_token():
+        nonlocal digits, tok_start
+        close_digit()
+        if digits:
+            tokens.append({"digits": digits, "start": tok_start, "end": prev_end, "section": section})
+        digits = []
+        tok_start = None
+
+    for start, end in pulses:
+        if prev_end is not None:
+            gap = start - prev_end
+            if gap >= timing.code_gap:
+                close_token()
+                if gap >= timing.section_gap:
+                    section += 1
+            elif gap >= timing.digit_gap:
+                close_digit()
+        if tok_start is None:
+            tok_start = start
+        count += 1
+        prev_end = end
+    close_token()
+    return tokens
+
+
+def token_text(tok):
+    return "".join(str(d) if d < 10 else f"({d})" for d in tok["digits"])
+
+
+def _unique(codes):
+    seen, out = set(), []
+    for c in codes:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+def interpret(tokens, mode):
+    """Sort the tokens into what the test means. mode: 'koeo' or 'koer'."""
+    result = {"mode": mode, "warnings": [], "sequence": " ".join(token_text(t) for t in tokens)}
+    for t in tokens:
+        if any(d > 10 for d in t["digits"]):
+            result["warnings"].append(f"a digit had more than 10 pulses ({token_text(t)}): timing limits may be off")
+
+    if mode == "koeo":
+        sep = next((i for i, t in enumerate(tokens) if t["digits"] == [1]), None)
+        before = tokens if sep is None else tokens[:sep]
+        after = [] if sep is None else tokens[sep + 1:]
+        result["on_demand"] = _unique(token_text(t) for t in before)
+        result["memory"] = _unique(token_text(t) for t in after)
+        result["separator_seen"] = sep is not None
+        if sep is None and tokens:
+            result["warnings"].append("no separator pulse seen: memory codes may be missing (test cut short?)")
+    else:
+        rest = list(tokens)
+        result["engine_id"] = None
+        if rest and len(rest[0]["digits"]) == 1 and rest[0]["digits"] != [1]:
+            result["engine_id"] = rest.pop(0)["digits"][0]
+        result["dynamic_response_seen"] = False
+        if rest and rest[0]["digits"] == [1]:
+            result["dynamic_response_seen"] = True
+            rest.pop(0)
+        result["running"] = _unique(token_text(t) for t in rest)
+        if result["engine_id"] is None and tokens:
+            result["warnings"].append("no engine ID seen at the start: the running test may not have started right")
+    return result
+
+
+def decode(edges, mode, timing=None, end_ms=None):
+    timing = timing or Timing()
+    pulses, long_pulses = edges_to_pulses(edges, timing, end_ms)
+    tokens = group_pulses(pulses, timing)
+    result = interpret(tokens, mode)
+    result["pulse_count"] = len(pulses)
+    for s, e in long_pulses:
+        result["warnings"].append(
+            f"the line stayed active for {(e - s) / 1000:.1f} s: not a code pulse. "
+            "Wrong cavity, or the self-test output is shorted to ground (see docs/troubleshooting.md)")
+    return result
+
+
+class LiveKoer:
+    """Watches a running test as it happens and says when to do the operator steps."""
+
+    def __init__(self, timing=None):
+        self.timing = timing or Timing()
+        self.edges = []
+        self.id_announced = False
+        self.goose_announced = False
+        self.id_pulses = 0
+
+    def feed(self, ms, active):
+        self.edges.append((ms, active))
+
+    def tick(self, now_ms):
+        pulses, _ = edges_to_pulses(self.edges, self.timing)
+        if not pulses:
+            return None
+        quiet = now_ms - pulses[-1][1]
+        if self.edges and self.edges[-1][1]:
+            return None  # a pulse is in progress
+        if not self.id_announced and quiet >= self.timing.digit_gap + 100:
+            self.id_announced = True
+            self.id_pulses = len(pulses)
+            return ("engine_id", len(pulses))
+        if self.id_announced and not self.goose_announced:
+            after = len(pulses) - self.id_pulses
+            if after == 1 and quiet >= self.timing.digit_gap * 2 + 200:
+                self.goose_announced = True
+                return ("goose", None)
+            if after > 1:
+                self.goose_announced = True  # codes started; there was no throttle-snap request
+        return None
+
+
+# --- the bridge -------------------------------------------------------------------------------
+
+class BridgeError(Exception):
+    pass
+
+
+def parse_line(line):
+    parts = line.split()
+    if not parts:
+        return None
+    try:
+        if parts[0] == "E" and len(parts) == 3:
+            return ("E", int(parts[1]), parts[2] == "1")
+        if parts[0] == "K" and len(parts) == 4:
+            return ("K", int(parts[1]), parts[2] == "1", parts[3] == "1")
+    except ValueError:
+        return ("?", line)
+    if parts[0] == "WARN":
+        return ("WARN", line)
+    return ("INFO", line)
+
+
+class Bridge:
+    def __init__(self, ser):
+        self.ser = ser
+        self.buf = b""
+
+    @classmethod
+    def open(cls, port, on_info=print):
+        import serial
+        if port == "auto":
+            port = find_bridge_port()
+            if port is None:
+                raise BridgeError("no Arduino found on USB. Is the Nano plugged in? (Try another cable: some are charge-only.)")
+            on_info(f"Using port {port}")
+        try:
+            ser = serial.Serial(port, USB_BAUD, timeout=0.05)
+        except Exception as e:  # noqa: BLE001 - pyserial raises several types
+            raise BridgeError(f"could not open {port}: {e}. Close the Arduino Serial Monitor or anything else using it.")
+        bridge = cls(ser)
+        deadline = time.monotonic() + 4.0  # the Nano resets when the port opens
+        while time.monotonic() < deadline:
+            for msg in bridge.poll():
+                if msg[0] == "INFO" and msg[1].startswith(BANNER):
+                    on_info(f"Bridge found: {msg[1]}")
+                    return bridge
+        ser.close()
+        raise BridgeError("the port opened but the bridge never said hello. Is eec_bridge uploaded to this Nano?")
+
+    def poll(self):
+        """Messages that have arrived, parsed."""
+        data = self.ser.read(self.ser.in_waiting or 1)
+        self.buf += data
+        out = []
+        while b"\n" in self.buf:
+            raw, self.buf = self.buf.split(b"\n", 1)
+            msg = parse_line(raw.decode("ascii", "replace").strip())
+            if msg:
+                out.append(msg)
+        return out
+
+    def sti(self, on):
+        self.ser.write(b"STI 1\n" if on else b"STI 0\n")
+
+    def close(self):
+        try:
+            self.sti(False)
+            time.sleep(0.05)
+        finally:
+            self.ser.close()
+
+
+def find_bridge_port():
+    """The first USB serial port that looks like an Arduino (genuine, CH340 or FTDI clones)."""
+    from serial.tools import list_ports
+    known_vids = {0x2341, 0x2A03, 0x1A86, 0x0403, 0x10C4}
+    names = ("usbserial", "wchusbserial", "usbmodem", "ttyUSB", "ttyACM", "CH340", "Arduino")
+    for p in list_ports.comports():
+        if p.vid in known_vids or any(n in (p.device + " " + (p.description or "")) for n in names):
+            return p.device
+    return None
+
+
+# --- a pretend motorhome, to test the laptop side without the vehicle ----------------------------
+
+def build_edges(sections, t0, slow=500, digit_gap=2000, code_gap=4000, section_gap=7000,
+                fast_codes=False, repeat=True):
+    """sections: [[code, ...], ...]. Gaps are the time the line rests between pulses.
+    Returns (edges, end_ms). A list of real codes is sent twice when repeat is True, as the
+    computer does."""
+    edges = []
+    t = t0
+    if fast_codes:
+        for _ in range(40):
+            edges += [(t, True), (t + 15, False)]
+            t += 30
+        t += 2500
+    for si, section in enumerate(sections):
+        if si:
+            t += section_gap
+        codes = section * 2 if (repeat and len(section[0]) > 1) else section
+        for ci, code in enumerate(codes):
+            if ci:
+                t += code_gap
+            for di, ch in enumerate(code):
+                if di:
+                    t += digit_gap
+                n = 10 if ch == "0" else int(ch)
+                for p in range(n):
+                    if p:
+                        t += slow
+                    edges += [(t, True), (t + slow, False)]
+                    t += slow
+    return edges, t
+
+
+class DemoBridge:
+    """Behaves like the real bridge, against a made-up 460 with a few codes stored."""
+
+    SCENARIOS = {
+        "koeo": [["113"], ["1"], ["212", "172"]],
+        "koeo_cleared": [["113"], ["1"], ["111"]],
+        "koer": [["4"], ["1"], ["172"]],
+    }
+
+    def __init__(self, mode="koeo", speed=8.0, on_info=print):
+        self.mode = mode
+        self.speed = speed
+        self.start = time.monotonic()
+        self.sti_on = False
+        self.queue = []
+        self.sent_k = 0
+        self.erased = False
+        self.timeline_end = None
+        on_info(f"Bridge found: EECBRIDGE 1.0 (DEMO, {mode}, running {speed:g}x real time)")
+
+    def now_ms(self):
+        return int((time.monotonic() - self.start) * 1000 * self.speed)
+
+    def sti(self, on):
+        now = self.now_ms()
+        if on and not self.sti_on:
+            key = "koeo_cleared" if (self.mode == "koeo" and self.erased) else self.mode
+            if self.mode == "koer":
+                edges, end = build_edges(self.SCENARIOS["koer"], now + 3000, section_gap=9000)
+                # a stuck brake-switch step would show here as 536; this demo did it right
+            else:
+                edges, end = build_edges(self.SCENARIOS[key], now + 2000, fast_codes=True)
+            self.queue = edges
+            self.timeline_end = end
+        if not on and self.sti_on and self.queue:
+            # releasing the self-test input while codes are coming out erases stored codes
+            if self.mode == "koeo":
+                self.erased = True
+            self.queue = []
+        self.sti_on = on
+
+    def poll(self):
+        time.sleep(0.01)
+        now = self.now_ms()
+        out = []
+        while self.queue and self.queue[0][0] <= now:
+            ms, active = self.queue.pop(0)
+            out.append(("E", ms, active))
+        if now - self.sent_k >= 500:
+            self.sent_k = now
+            out.append(("K", now, False, self.sti_on))
+        return out
+
+    def close(self):
+        pass
+
+
+def save_log(path, mode, edges, result, timing, extra=None):
+    data = {"mode": mode, "timing": timing.as_dict(), "edges": edges, "result": result}
+    if extra:
+        data.update(extra)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
+
+
+def load_log(path):
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    data["edges"] = [(int(ms), bool(a)) for ms, a in data["edges"]]
+    return data
