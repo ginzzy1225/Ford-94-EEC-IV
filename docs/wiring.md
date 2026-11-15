@@ -23,6 +23,19 @@ Looking down at the chip, the dot or notch marks pin 1:
 
 ## The circuit
 
+![Breadboard wiring: motorhome wires on the left, two PC817 optocouplers in the middle, the Nano on the right](img/breadboard-wiring.svg)
+
+This is a wiring map, not a hole-by-hole layout. Any placement works as long as every connection matches:
+
+- **Nano** straddles the center gap at one end of the board, USB-C end facing off the board.
+- **Rails:** Nano 5V to the red (+) rail, one Nano GND to the blue (−) rail. Every "GND" in the drawing can go to that blue rail.
+- **PC817s** both straddle the center gap. U1 sits with its dot (pin 1) top-left. U2 sits turned around, dot bottom-right, so its transistor pins (3, 4) face the motorhome wires.
+- **The ground tie** joins signal return to the Nano's ground. Without it, U1 can't see the STO pulses.
+- **The diode's band** goes toward the STO wire.
+- **Motorhome leads:** three long wires with back-probe pins or clips, taped and labeled STO, SIG RTN, STI. Colors shown are from the 1994 7.5L pickup diagram ([pinout-1994-7.5L.md](pinout-1994-7.5L.md)); confirm on the van.
+
+The same circuit as text:
+
 ```
             U1: reads the self-test output (STO)
 
