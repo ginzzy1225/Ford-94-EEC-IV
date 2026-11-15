@@ -1,68 +1,91 @@
 # How the EEC-IV self-test works
 
-The EEC-IV can't stream live data the way a modern OBD-II computer does. What it has is a set of built-in tests. When the self-test input is grounded, it runs a test and reports the result as pulses on the self-test output. The CHECK ENGINE light flashes the same pulses.
+The EEC-IV can't stream live data the way a modern OBD-II computer does. Instead it has built-in tests, which Ford calls Quick Test. When the self-test input is grounded, the computer runs a test and reports the result as pulses on the self-test output. The CHECK ENGINE light flashes the same pulses, because it's on the same wire.
 
-## Reading the pulses
+Procedures and timing here are checked against Charles O. Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993* (Bentley), Chapter 10, "Quick Test", pp. 215–228. Page numbers are the book's printed ones.
 
-- A digit is a run of pulses, about half a second each. Ten pulses means 0.
-- About 2 seconds of rest between the digits of a code, and about 4 seconds between codes.
+## Reading the pulses (pp. 216, 219–220)
+
+- A digit is a run of pulses, each ½ second on and ½ second off. Ten pulses means 0.
+- There are 2 seconds between the digits of one code, and 4 seconds between codes.
 - 3-digit codes on this computer. **111 means pass.**
-- At the very start come "fast codes": a burst of very short flickers meant for Ford's factory tester. Ignore them; the scanner does.
+- "Fast codes" come first: the same information sent 100 times faster, for factory testers. The scanner ignores them.
 - Each list of codes is sent twice.
 
-The scanner sorts rests with these limits (milliseconds). A saved test can be decoded again with different ones (`--replay`):
+The scanner sorts rests with these limits, in milliseconds. A saved test can be decoded again with different ones (`--replay`):
 
 | Limit | Default | Meaning |
 |---|---|---|
 | `--min-pulse` | 150 | shorter pulses are fast codes or noise |
-| `--max-pulse` | 2500 | longer means the line is stuck, not a code |
-| `--digit-gap` | 1200 | a rest this long ends a digit |
-| `--code-gap` | 3000 | ... ends a code |
-| `--section-gap` | 5500 | ... ends a section (around the separator) |
+| `--max-pulse` | 2500 | longer means the CHECK ENGINE light was simply on, or the line is stuck |
+| `--digit-gap` | 1200 | a rest this long ends a digit (nominal ½ s inside a digit, 2 s between digits) |
+| `--code-gap` | 3000 | ... ends a code (nominal 4 s) |
+| `--section-gap` | 5500 | ... ends a section (6–9 s around the separator) |
 
 ## Key on, engine off (`koeo`)
 
-Set up: Park, parking brake on, A/C and accessories off, key OFF. Then the scanner grounds STI and tells you to turn the key to ON. Don't start the engine.
+Setup (p. 223):
 
-What comes out:
+1. Engine at normal operating temperature. A cold engine can set code 116.
+2. Park, parking brake on, wheels blocked, electrical loads off (A/C, defrost, lights, blower).
+3. Key OFF for at least 10 seconds.
+
+The scanner then grounds STI and tells you to turn the key to ON. Don't start the engine.
+
+What comes out (p. 216):
 
 1. Fast codes (ignored)
-2. **On-demand codes**: faults present right now (a sensor unplugged or reading out of range)
-3. 6-9 seconds of rest, **one separator pulse**, 6-9 seconds of rest
-4. **Memory codes**: faults the computer saw while driving and stored. They are kept for many warm-up cycles. These are usually the most useful for an intermittent problem.
+2. **On-demand codes:** faults present right now ("hard" faults)
+3. 6–9 seconds of rest, **one separator pulse**, 6–9 seconds of rest
+4. **Memory codes:** faults the computer saw while driving, including intermittent ones. Each one is forgotten after the engine warms up 80 times without the fault coming back (40 on a few engines). For a problem that comes and goes, these are usually the most useful.
 
 It takes about a minute. The scanner stops 15 seconds after the last pulse.
 
+If the computer's first check, its own processor, fails, it holds the self-test output on continuously and stops the test (p. 218). The scanner reports that as a line that stayed active with no codes.
+
 ## Engine running (`koer`)
 
-Set up: fix the key-on codes first, or the computer may refuse the running test (code 998). Warm the engine (about 2000 rpm for 2 minutes), shut it off for 10 seconds, Park, parking brake, A/C off. The scanner grounds STI and tells you when to start the engine.
+Setup (pp. 223–225):
+
+1. Fix the key-on codes first. The computer may refuse the running test with code 998 (hard fault present).
+2. Warm the engine fully, then run it at 2000–2500 rpm for 2–3 minutes.
+3. Engine off for 10 seconds. Park, parking brake on, wheels blocked, electrical loads off, outdoors.
+
+The scanner grounds STI and tells you when to start the engine.
 
 What comes out, and what you do:
 
-1. **Engine ID**: 4 pulses for a V8.
-2. **Right after the ID**, within a few seconds:
-   - press and release the brake pedal (else code 536)
-   - turn the steering wheel half a turn and back (else 521, on engines with the power steering switch)
-   - press the O/D cancel button on, then off (else 632; E4OD transmission)
-3. **One single pulse** on many engines (the dynamic response request). When it comes, snap the throttle wide open once, quickly, and let go. Else you get 538 and maybe 129 or 167.
+1. **Engine ID:** 4 pulses means a V8 (the book's table: 2 = 4 cylinders, 3 = 6, 4 = 8).
+2. **Within 1–2 seconds after the ID** (p. 224):
+   - turn the steering wheel at least half a turn and release (else code 521)
+   - press and release the brake pedal (else 536)
+   - press the O/D cancel button on and off (E4OD transmission; else 632)
+3. **One single pulse**, on some engines. This is the dynamic response request: briefly snap the throttle wide open once. It comes 6–20 seconds after the ID (p. 220). Missing it sets 538, and possibly 129, 167 or 225.
 4. **Running codes.**
 
-The scanner prints and beeps each step at the right moment, so **run `koer` in a terminal you can see from the driver's seat**, or have someone watch it. Codes 521, 536, 632 and 538 after a running test usually mean a step was missed. Redo the test before chasing parts.
+The 1–2 second window is short. So the scanner gives a heads-up as soon as the ID flashes start, and says NOW within about a second of the last one. **Run `koer` in a terminal you can see from the driver's seat**, or have someone call out the steps.
+
+**Unresolved: the engine ID on 3-digit systems.** Probst's Super STAR II procedure lists, for 3-digit vehicles, a dynamic response indicator but no engine ID (p. 224). If your computer does that, the first thing out is the single snap-the-throttle pulse. The scanner watches for this: a lone first pulse followed by a long rest gets a "snap the throttle now, then do the wheel, brake and O/D steps" prompt. The first real running test will show which way this computer works.
+
+After the last running code, spark timing stays fixed for 2 minutes. With a timing light it should read base timing plus about 20° (17–23°). Base timing is on the VECI emissions sticker, usually 10° BTDC (pp. 223–224).
 
 ## Erasing memory codes (`clear`)
 
-Ford's method: start the key-on test, and when the codes start coming out, unground STI. That erases the memory codes. The scanner does exactly that. Run `koeo` again afterward; memory should show 111.
+Probst's method (p. 228): start the key-on test, and when the codes begin to show, remove the STI ground. That erases the memory codes without erasing the keep-alive memory, the computer's learned fuel and idle adjustments. The scanner does exactly that. Run `koeo` again afterward; memory should show 111.
 
-Erasing is useful after a repair, so you can drive it and see whether the code comes back. Disconnecting the battery also erases them, but it erases the computer's learned values too, and can set its own code (512).
+Disconnecting the battery also clears codes, but it wipes the learned adjustments too. The book says to expect driveability problems for 10 miles or more while the computer relearns.
 
-## Wiggle test (`wiggle`, experimental)
+## Wiggle test (`wiggle`, `wiggle --running`)
 
-Scan-tool manuals describe a key-on "continuous monitor" mode: start the key-on test, wait about 10 seconds, unground STI and ground it again. After that, the self-test output goes active the moment the computer sees a fault. You wiggle connectors and harness runs one at a time, and when the line goes active you have found the bad spot.
+Ford's Continuous Monitor Test (p. 225) is for finding an intermittent fault:
 
-The scanner follows that sequence and beeps on every change. It has not been tried on a real motorhome yet. If the line just starts flashing a normal code list instead, the timing differs on this computer; tell the agent and it can adjust. This test also erases memory codes, so run `koeo` first.
+- **Key on version:** key ON (don't start), ground STI for 10 seconds, release it, then ground it again.
+- **Engine running version:** if you just ran a key-on test, key OFF for 10 seconds first. Start the engine, then the same ground / release / ground sequence. Keep it running.
 
-## What this can't do
+After that, wiggle, tap and move one suspect sensor or harness at a time. When the computer sees a fault, the self-test output goes active and the CHECK ENGINE light comes on. The scanner beeps and timestamps every change. This erases memory codes, so run `koeo` first. It follows the book but hasn't been tried on this motorhome yet.
 
-- **Live data** (rpm, temperatures, O2 readings, fuel trim). EEC-IV has a separate data link on some vehicles, but it's poorly documented and often not wired on trucks. A possible later project.
-- **The transmission's own data.** The E4OD is run by this same computer, so its codes (6xx) do show up in these tests.
-- **Ignition timing and idle checks** that need a timing light. See a service manual.
+## What this can't do (yet)
+
+- **Live data** (rpm, temperatures, O2 readings, fuel trim). Probst mentions the data communications link (DCL) and its fault codes (529, 533), but gives no protocol. See [plan-android-tablet.md](plan-android-tablet.md), Phase 2.
+- **Output State test** (p. 228): the computer switches all its actuators on and off on command, for checking solenoids and relays. It's a possible addition.
+- **Cylinder balance test:** this is for sequential-injection (SFI) engines only.

@@ -7,6 +7,7 @@ Built for a 1994 Ford E-350 motorhome chassis with the 7.5L (460).
     python eec_scan.py koer                  engine running test (watch the screen for steps)
     python eec_scan.py clear                 erase stored memory codes
     python eec_scan.py wiggle                watch for wiring faults while you wiggle harnesses
+    python eec_scan.py wiggle --running      the same with the engine running
     python eec_scan.py watch                 just show the self-test line, for wiring checks
     python eec_scan.py lookup 212 536        what codes mean
     python eec_scan.py --replay pc/logs/eec_koeo_XXXX.json    decode a saved test again
@@ -129,10 +130,11 @@ def report(result):
     say(f"Pulses heard, in order: {result['sequence'] or '(nothing)'}")
     if result["mode"] == "koeo":
         print_codes("Key on, engine off (problems present right now):", result["on_demand"], "O")
-        print_codes("Memory codes (stored while driving, last ~40 warm-ups):", result["memory"], "C")
+        print_codes("Memory codes (seen while driving; each clears after 80 warm-ups without the fault, 40 on some engines):",
+                    result["memory"], "C")
     else:
         eid = result.get("engine_id")
-        say(f"Engine ID: {eid if eid is not None else 'not seen'}"
+        say(f"Engine ID: {eid if eid is not None else 'not seen (some 3-digit systems skip it)'}"
             + ("  (4 = eight cylinders, right for the 460)" if eid == 4 else ""))
         say(f"Throttle snap request: {'seen' if result['dynamic_response_seen'] else 'not seen'}")
         print_codes("Engine running codes:", result["running"], "R")
@@ -149,10 +151,13 @@ def run_koeo(args, clear=False):
     result = None
     try:
         say("")
-        say("Before this test: transmission in PARK, parking brake on, A/C and accessories off.")
+        say("Before this test (Probst p. 223):")
+        say("  - Engine warmed to normal operating temperature (a cold engine can set code 116).")
+        say("  - PARK, parking brake on, wheels blocked, everything electrical off (A/C, defrost, lights, blower).")
+        say("  - Key OFF for at least 10 seconds.")
         if clear:
             say("This will ERASE the stored memory codes. Run 'koeo' first if you haven't written them down.")
-        say("Key OFF now if it isn't. Grounding the self-test input...")
+        say("Grounding the self-test input...")
         bridge.sti(True)
         time.sleep(0.3)
         rec.pump()
@@ -165,8 +170,12 @@ def run_koeo(args, clear=False):
             def first_slow_done():
                 from eec_protocol import edges_to_pulses
                 return bool(edges_to_pulses(rec.edges, timing)[0])
+            deadline = time.monotonic() + args.wait
             while not first_slow_done():
                 rec.pump()
+                if time.monotonic() > deadline:
+                    say("No codes started coming out, so nothing was erased. Turn the key OFF.")
+                    return 1
             bridge.sti(False)
             say("Released the self-test input while codes were coming out: stored codes are erased.")
             say("Turn the key OFF. Run 'koeo' again to confirm memory shows 111.")
@@ -197,15 +206,16 @@ def run_koer(args):
         say("")
         say("Before this test:")
         say("  - Fix any key-on (koeo) codes first; the running test may refuse to run (code 998).")
-        say("  - Warm the engine: run it at about 2000 rpm for 2 minutes, then shut it off for 10 s.")
-        say("  - PARK, parking brake on, A/C off, wheels chocked. Run it outdoors.")
+        say("  - Warm the engine fully, then run it at 2000-2500 rpm for 2-3 minutes (Probst pp. 224-225).")
+        say("  - Engine OFF for 10 seconds. PARK, parking brake on, wheels blocked, electrical loads off.")
+        say("  - Run it outdoors.")
         say("")
-        say("Watch for these steps on this screen (and keep an eye on the check engine light):")
-        say("  1. After the engine ID (4 flashes): press and release the brake, turn the steering wheel")
-        say("     half a turn and back, and press the O/D cancel button on the shifter on, then off.")
-        say("  2. If one single flash follows: snap the throttle wide open once, quickly, and let go.")
+        say("The steps you'll do (the screen and the CHECK ENGINE light tell you when):")
+        say("  1. Within 1-2 seconds after the engine ID (4 flashes): turn the steering wheel half a turn")
+        say("     and release, press and release the brake, press the O/D cancel button on and off.")
+        say("  2. If one single flash comes later: snap the throttle wide open once, briefly.")
         say("")
-        say("Key OFF now. Grounding the self-test input...")
+        say("Grounding the self-test input...")
         bridge.sti(True)
         time.sleep(0.3)
         rec.pump()
@@ -215,11 +225,18 @@ def run_koer(args):
 
         def on_tick(now):
             event = live.tick(now)
-            if event and event[0] == "engine_id":
-                alert(f"Engine ID received ({event[1]} flashes). NOW: brake on/off, wheel half a turn, "
+            if not event:
+                return
+            if event[0] == "id_start":
+                alert("Engine ID flashes starting. GET READY: when they stop, wheel half a turn, brake, O/D button.")
+            elif event[0] == "engine_id":
+                alert(f"ID done ({event[1]} flashes). NOW: wheel half a turn and release, brake on/off, "
                       "O/D button on/off.")
-            elif event and event[0] == "goose":
-                alert("Single flash: SNAP THE THROTTLE wide open once, quickly, then let go.")
+            elif event[0] == "goose":
+                alert("Single flash: SNAP THE THROTTLE wide open once, briefly, then let go.")
+            elif event[0] == "goose_no_id":
+                alert("A single flash with no engine ID: SNAP THE THROTTLE wide open once now. "
+                      "Then do the wheel, brake and O/D steps right away.")
 
         state = record_until_quiet(rec, quiet_ms=30000, max_ms=args.max_seconds * 1000, on_tick=on_tick)
         if state == "timeout":
@@ -238,30 +255,38 @@ def run_koer(args):
 
 
 def run_wiggle(args):
-    """EXPERIMENTAL. Key-on continuous monitor ('wiggle') test, as described in scan-tool manuals:
-    start the key-on test, wait ~10 s, release and re-ground the self-test input. After that, the
-    computer pulls the line active whenever it sees a fault, so wiggling a bad connector shows up."""
+    """Continuous monitor ('wiggle') test, per Probst p. 225. Key on (or engine running), then
+    ground the self-test input for 10 s, release it and ground it again. From then on the computer
+    pulls the line active whenever it sees a fault, so wiggling a bad connector shows up.
+    Not yet tried on the motorhome."""
     timing = Timing()
     bridge = open_bridge(args, "koeo")
     rec = Recorder(bridge)
+    scale = args.demo_speed if args.port.upper() == "DEMO" else 1
     try:
         say("")
-        say("EXPERIMENTAL wiggle test. It also erases stored memory codes: run 'koeo' first.")
-        say("Key OFF now. Grounding the self-test input...")
+        say("Wiggle test. It also erases stored memory codes: run 'koeo' first and write them down.")
+        if args.running:
+            say("Engine-running version. If you just ran a key-on test, key OFF for 10 seconds first.")
+            alert("START THE ENGINE and let it idle. Starting in 15 seconds.")
+        else:
+            alert("Turn the key to ON. Do NOT start the engine. Starting in 15 seconds.")
+        time.sleep(15 / scale)
+        rec.pump()
+        say("Grounding the self-test input for 10 seconds...")
         bridge.sti(True)
-        time.sleep(0.3)
-        alert("Turn the key to ON. Do NOT start the engine.")
-        if not wait_for_activity(rec, args.wait, "Was the key turned on?"):
-            return 1
-        time.sleep(10 / (args.demo_speed if args.port.upper() == "DEMO" else 1))
+        time.sleep(10 / scale)
         rec.pump()
         bridge.sti(False)
-        time.sleep(1.0)
+        time.sleep(1.0 / scale)
         rec.pump()
         bridge.sti(True)
+        time.sleep(1.0 / scale)
+        rec.pump()
         mark = len(rec.edges)
         say("Monitoring. Wiggle connectors and harnesses one at a time, and tap sensors.")
-        say("A beep and a FAULT line means the computer just saw a fault. Ctrl+C to stop.")
+        say("A beep and a FAULT line means the computer just saw a fault (the CHECK ENGINE light")
+        say("flashes too). Ctrl+C to stop.")
         end = time.monotonic() + args.max_seconds
         while time.monotonic() < end:
             rec.pump()
@@ -343,6 +368,7 @@ def main(argv=None):
     ap.add_argument("--max-seconds", type=int, default=300, help="time limit for a test (default 300)")
     ap.add_argument("--demo-speed", type=float, default=8.0, help="how fast DEMO runs (default 8x)")
     ap.add_argument("--sti", action="store_true", help="watch: also ground the self-test input")
+    ap.add_argument("--running", action="store_true", help="wiggle: engine-running version")
     ap.add_argument("-v", "--verbose", action="store_true", help="print every pulse")
     ap.add_argument("--replay", help="decode a saved log again")
     for key in ("min_pulse", "max_pulse", "digit_gap", "code_gap", "section_gap"):

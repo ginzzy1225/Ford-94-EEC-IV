@@ -55,7 +55,15 @@ class Koeo(unittest.TestCase):
         edges = [(0, True), (6000, False)]
         r = decode(edges, "koeo")
         self.assertEqual(r["pulse_count"], 0)
-        self.assertTrue(any("stayed active" in w for w in r["warnings"]))
+        self.assertTrue(any("processor check" in w for w in r["warnings"]))
+
+    def test_check_engine_light_before_codes_is_ignored(self):
+        lit = [(0, True), (3000, False)]
+        edges, _ = build_edges([["113"], ["1"], ["111"]], 5000)
+        r = decode(lit + edges, "koeo")
+        self.assertEqual(r["on_demand"], ["113"])
+        self.assertEqual(r["memory"], ["111"])
+        self.assertTrue(any("CHECK ENGINE light" in w for w in r["warnings"]))
 
     def test_stuck_line_still_active_at_end(self):
         r = decode([(0, True)], "koeo", end_ms=10000)
@@ -77,11 +85,10 @@ class Koer(unittest.TestCase):
         self.assertFalse(r["dynamic_response_seen"])
         self.assertEqual(r["running"], ["111"])
 
-    def test_live_prompts(self):
-        edges, end = build_edges([["4"], ["1"], ["172"]], 0, section_gap=9000)
+    def _events(self, sections):
+        edges, end = build_edges(sections, 0, section_gap=9000)
         live = LiveKoer(Timing())
-        events = []
-        i = 0
+        events, i = [], 0
         for now in range(0, end + 5000, 50):
             while i < len(edges) and edges[i][0] <= now:
                 live.feed(*edges[i])
@@ -89,24 +96,40 @@ class Koer(unittest.TestCase):
             ev = live.tick(now)
             if ev:
                 events.append((now, ev[0]))
-        self.assertEqual([e[1] for e in events], ["engine_id", "goose"])
-        # the ID prompt must come before the snap request pulse starts
-        snap_pulse_start = edges[8][0]
-        self.assertLess(events[0][0], snap_pulse_start)
+        return edges, events
+
+    def test_live_prompts(self):
+        edges, events = self._events([["4"], ["1"], ["172"]])
+        self.assertEqual([e[1] for e in events], ["id_start", "engine_id", "goose"])
+        # Probst p. 224: the steps are due within 1-2 s of the ID, so NOW must come within 1 s of its end
+        id_end = edges[7][0]
+        now_at = dict((name, t) for t, name in events)["engine_id"]
+        self.assertLess(now_at - id_end, 1000)
+        # the heads-up comes while the ID is still flashing
+        self.assertLess(dict((name, t) for t, name in events)["id_start"], id_end)
 
     def test_live_no_goose_when_codes_follow(self):
-        edges, end = build_edges([["4"], ["111"]], 0, section_gap=9000)
+        _, events = self._events([["4"], ["111"]])
+        self.assertEqual([e[1] for e in events], ["id_start", "engine_id"])
+
+    def test_live_no_engine_id(self):
+        # some 3-digit systems send the throttle-snap flash but no ID (Probst p. 224)
+        _, events = self._events([["1"], ["111"]])
+        self.assertEqual([e[1] for e in events], ["id_start", "goose_no_id"])
+
+    def test_decode_no_engine_id(self):
+        edges, _ = build_edges([["1"], ["536"]], 0, section_gap=9000)
+        r = decode(edges, "koer")
+        self.assertIsNone(r["engine_id"])
+        self.assertTrue(r["dynamic_response_seen"])
+        self.assertEqual(r["running"], ["536"])
+
+    def test_live_ignores_check_engine_light_at_crank(self):
+        # the CHECK ENGINE light shares the STO wire; a long lit period is not a pulse
         live = LiveKoer(Timing())
-        got = []
-        i = 0
-        for now in range(0, end + 5000, 50):
-            while i < len(edges) and edges[i][0] <= now:
-                live.feed(*edges[i])
-                i += 1
-            ev = live.tick(now)
-            if ev:
-                got.append(ev[0])
-        self.assertEqual(got, ["engine_id"])
+        live.feed(0, True)
+        live.feed(4000, False)
+        self.assertIsNone(live.tick(6000))
 
 
 if __name__ == "__main__":

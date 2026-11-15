@@ -50,6 +50,7 @@ Three wires go to the motorhome, so label them with tape:
 
 How it works:
 
+- At rest, STO sits near 12 V through the CHECK ENGINE bulb, which shares the wire (Probst p. 137). The diode blocks, so nothing flows and the reader shows idle.
 - When the computer flashes a code, it pulls STO to ground. Current flows from the Nano's 5 V through the 470 Ω resistor, U1's LED and the diode into STO. U1's transistor then pulls D2 low, and the Nano records the time. The Nano's own LED (marked L) flashes along with the codes.
 - When the laptop says to start a test, D3 goes high and lights U2's LED. U2's transistor then connects STI to signal return, which is the same thing the paperclip did.
 
@@ -81,3 +82,4 @@ On Windows the port is something like `COM4` (Device Manager → Ports). Clones 
 
 - Run the laptop on its battery during tests, not plugged into the motorhome's inverter or shore power. The Nano's ground is tied to the engine computer's signal return.
 - Key OFF before plugging the wires in or pulling them out.
+- The reader adds about 7 mA to the STO line. Probst warns against anything that draws more than 0.5 A there (p. 219), so don't substitute a test light with a big bulb.

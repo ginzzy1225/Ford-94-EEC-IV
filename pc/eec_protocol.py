@@ -4,14 +4,18 @@ The bridge (arduino/eec_bridge) reports every change of the Self-Test Output lin
 millisecond timestamp from the Nano's clock. Everything here works on those timestamps, so a
 saved log can be decoded again later (--replay) with different timing limits.
 
-How the EEC-IV sends a code (docs/self-test.md has the full picture):
-  - each digit is a run of half-second pulses, ten pulses meaning 0
-  - about 2 s between the digits of one code, about 4 s between codes
-  - very short "fast code" pulses at the start, meant for factory testers: ignored here
-  - key on engine off: on-demand codes, ~6-9 s pause, ONE separator pulse, ~6-9 s pause,
-    then the continuous-memory codes. 111 means nothing found.
-  - engine running: the engine ID (4 pulses on a V8), then on many engines one single pulse
-    asking for a quick wide-open throttle snap, then the running codes.
+How the EEC-IV sends a code (docs/self-test.md has the full picture). Timing checked against
+Probst, "Ford Fuel Injection & Electronic Engine Control 1988-93", pp. 216-220:
+  - each digit is a run of pulses, 1/2 s on and 1/2 s off, ten pulses meaning 0
+  - 2 s between the digits of one code, 4 s between codes
+  - "fast codes" first, 100 times faster, meant for factory testers: ignored here
+  - key on engine off: on-demand codes, 6-9 s pause, ONE separator pulse, 6-9 s pause,
+    then the continuous-memory codes. 111 means pass.
+  - engine running: the engine ID (4 pulses = V8), then on some engines one single pulse
+    asking for a brief wide-open throttle snap, then the running codes. The book suggests some
+    3-digit systems send the snap request but no engine ID (p. 224); both are handled.
+  - the self-test output shares its wire with the CHECK ENGINE light (computer pin 17, STO/MIL),
+    so the line can also sit active for a while just because the light is on.
 """
 
 import json
@@ -135,7 +139,9 @@ def interpret(tokens, mode):
             rest.pop(0)
         result["running"] = _unique(token_text(t) for t in rest)
         if result["engine_id"] is None and tokens:
-            result["warnings"].append("no engine ID seen at the start: the running test may not have started right")
+            result["warnings"].append(
+                "no engine ID seen at the start. Some 3-digit systems skip it; if 521, 536 or 632 came back, "
+                "the brake / wheel / O/D steps were probably late")
     return result
 
 
@@ -146,20 +152,36 @@ def decode(edges, mode, timing=None, end_ms=None):
     result = interpret(tokens, mode)
     result["pulse_count"] = len(pulses)
     for s, e in long_pulses:
-        result["warnings"].append(
-            f"the line stayed active for {(e - s) / 1000:.1f} s: not a code pulse. "
-            "Wrong cavity, or the self-test output is shorted to ground (see docs/troubleshooting.md)")
+        secs = (e - s) / 1000
+        if pulses:
+            result["warnings"].append(
+                f"the line was held active for {secs:.1f} s once (ignored): usually just the CHECK ENGINE light on")
+        else:
+            result["warnings"].append(
+                f"the line stayed active for {secs:.1f} s and no codes came out. Either the computer failed its "
+                "own processor check (it then holds the line on; Probst p. 218), or the STO wire is on a ground "
+                "cavity / shorted to ground. See docs/troubleshooting.md")
     return result
 
 
 class LiveKoer:
-    """Watches a running test as it happens and says when to do the operator steps."""
+    """Watches a running test as it happens and says when to do the operator steps.
+
+    Per Probst p. 224 the steering / brake / O/D steps are due within 1-2 s of the engine ID, so
+    a heads-up goes out as soon as the first ID pulse ends, and NOW as soon as the ID is over
+    (a rest longer than the 1/2 s between pulses of a digit). A lone first pulse followed by a
+    long rest is taken as the throttle-snap request of a system that sends no engine ID.
+    Only completed slow pulses count, so the CHECK ENGINE light lit while cranking is ignored.
+    """
+
+    END_OF_DIGIT_MS = 800
 
     def __init__(self, timing=None):
         self.timing = timing or Timing()
         self.edges = []
-        self.id_announced = False
-        self.goose_announced = False
+        self.started = False
+        self.id_done = False
+        self.goose_done = False
         self.id_pulses = 0
 
     def feed(self, ms, active):
@@ -169,20 +191,30 @@ class LiveKoer:
         pulses, _ = edges_to_pulses(self.edges, self.timing)
         if not pulses:
             return None
-        quiet = now_ms - pulses[-1][1]
+        if not self.started:
+            self.started = True
+            return ("id_start", None)
         if self.edges and self.edges[-1][1]:
             return None  # a pulse is in progress
-        if not self.id_announced and quiet >= self.timing.digit_gap + 100:
-            self.id_announced = True
-            self.id_pulses = len(pulses)
-            return ("engine_id", len(pulses))
-        if self.id_announced and not self.goose_announced:
-            after = len(pulses) - self.id_pulses
-            if after == 1 and quiet >= self.timing.digit_gap * 2 + 200:
-                self.goose_announced = True
+        quiet = now_ms - pulses[-1][1]
+        snap_wait = self.timing.digit_gap * 2 + 200
+        n = len(pulses)
+        if not self.id_done:
+            if n >= 2 and quiet >= self.END_OF_DIGIT_MS:
+                self.id_done = True
+                self.id_pulses = n
+                return ("engine_id", n)
+            if n == 1 and quiet >= snap_wait:
+                self.id_done = self.goose_done = True
+                return ("goose_no_id", None)
+            return None
+        if not self.goose_done:
+            after = n - self.id_pulses
+            if after == 1 and quiet >= snap_wait:
+                self.goose_done = True
                 return ("goose", None)
             if after > 1:
-                self.goose_announced = True  # codes started; there was no throttle-snap request
+                self.goose_done = True  # codes started; there was no throttle-snap request
         return None
 
 

@@ -7,13 +7,15 @@ Three wires run from the self-test connector under the hood to an Arduino Nano (
 - **Key on, engine off:** faults present now, plus the **memory codes** stored while driving
 - **Engine running:** with on-screen prompts for the brake, steering, O/D button and throttle-snap steps
 - **Erase memory codes** (Ford's method)
-- **Wiggle test** (experimental): beeps when the computer sees a fault while you wiggle wiring
+- **Wiggle test**, key on or engine running: beeps when the computer sees a fault while you wiggle wiring
 
 This computer doesn't stream live data like rpm or temperatures, so this reads codes only.
 
 This is adapted from [xj-scanner](https://github.com/MZULALI/xj-scanner), which reads 1991–95 Jeep computers. The setup, the agent guides and the approach come from there. The Ford side is new.
 
-> **Status: not yet tried on a real motorhome.** The decoder is tested against simulated pulse trains, and the sketch compiles. The connector information is Ford's usual EEC-IV truck layout. Measure your own plug before connecting anything ([docs/connector.md](docs/connector.md)).
+> **Status: not yet tried on a real motorhome.** The decoder is tested against simulated pulse trains, and the sketch compiles. The connector, test procedures, code timing and code table are checked against Charles O. Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993* (Bentley), cited by page in the docs. Measure your own plug before connecting anything ([docs/connector.md](docs/connector.md)).
+>
+> **Next:** an Android tablet version that runs in Chrome. See [docs/plan-android-tablet.md](docs/plan-android-tablet.md).
 
 ## The easy way
 

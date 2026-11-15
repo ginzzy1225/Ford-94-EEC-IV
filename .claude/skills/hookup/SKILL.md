@@ -24,9 +24,11 @@ You should see a pretend key-on test: code 113 now, 212 and 172 in memory. If th
 
 Help them find the self-test connector and the one-wire STI connector next to it ([docs/connector.md](../../../docs/connector.md)). Then the meter checks in that file: signal return by ohms with the key off, then the voltages with the key on. Write the table down together.
 
-Then the paperclip test: STI jumpered to signal return, key on, count the CHECK ENGINE light flashes. Write down what it flashes. This confirms STI and signal return, and gives codes to compare the scanner against.
+Then the paperclip test: engine warm, key off for 10 seconds, STI jumpered to signal return, key on. Count the CHECK ENGINE light flashes and write down what it flashes. This confirms STI and signal return, and gives codes to compare the scanner against.
 
-If the dash light never comes on with the key on, the bulb may be out. The scanner doesn't need the bulb, but the paperclip test does.
+Do the paperclip test with the meter on the battery-voltage cavities. STO is the one that drops to near 0 V with every flash; the fuel pump lead doesn't move. STO sits near battery voltage at rest because the CHECK ENGINE bulb shares its wire. Don't rule it out for reading 12 V.
+
+If the dash light never lights (it should, every time the key goes to START), the bulb may be out. The scanner doesn't need the bulb, but the paperclip test and this way of finding STO do.
 
 ## 3. Build the board
 
@@ -50,7 +52,7 @@ Key OFF. SIG RTN first, then STI into the one-wire connector, then STO into the 
 .venv/bin/python pc/eec_scan.py watch --max-seconds 10
 ```
 
-with the key ON, engine off. It should say idle. ACTIVE means STO is on a ground cavity: key off, move it to the other candidate.
+with the key OFF first: it should say idle. ACTIVE with the key off means STO is on a ground cavity, so move it to the other candidate. Then key ON: ACTIVE now is fine. It just means the CHECK ENGINE light is lit, because the light shares the STO wire.
 
 ## 6. First reading
 
