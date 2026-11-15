@@ -86,6 +86,6 @@ After that, wiggle, tap and move one suspect sensor or harness at a time. When t
 
 ## What this can't do (yet)
 
-- **Live data** (rpm, temperatures, O2 readings, fuel trim). Probst mentions the data communications link (DCL) and its fault codes (529, 533), but gives no protocol. See [plan-android-tablet.md](plan-android-tablet.md), Phase 2.
+- **Live data** (rpm, temperatures, O2 readings, fuel trim). Probst mentions the data communications link (DCL) and its fault codes (529, 533), but gives no protocol. The 1994 7.5L pickup diagram shows the data pair wired from the computer (pins 9 and 28) to this connector ([pinout-1994-7.5L.md](pinout-1994-7.5L.md)), so the link very likely exists. Talking to it is still unsolved. See [plan-android-tablet.md](plan-android-tablet.md), Phase 2.
 - **Output State test** (p. 228): the computer switches all its actuators on and off on command, for checking solenoids and relays. It's a possible addition.
 - **Cylinder balance test:** this is for sequential-injection (SFI) engines only.

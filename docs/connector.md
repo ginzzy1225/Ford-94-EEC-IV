@@ -21,7 +21,21 @@ On a motorhome, part of the engine bay is easier to reach from the engine cover 
 
 In the book's wiring diagram, the CHECK ENGINE bulb sits between the key-on 12 V feed and the STO wire. That's why the light flashes the codes: when the computer pulls STO to ground, the bulb lights. It also means **STO reads close to battery voltage with the key on**, through the bulb. That's whenever the light isn't lit.
 
-Wire colors vary by year, and a previous owner may have moved wires. Use the meter, not colors.
+## Wire colors to look for
+
+From the 1994 7.5L **pickup** wiring diagram ([pinout-1994-7.5L.md](pinout-1994-7.5L.md)). No van-specific diagram has been found yet, so treat these as what to expect, then confirm with the meter:
+
+| Wire | Color (circuit) |
+|---|---|
+| STI, in the separate one-wire plug | white/purple (209) |
+| STO / CHECK ENGINE light | pink/light green (658) |
+| Signal return | gray/red (359) |
+| Fuel pump lead | light blue/orange (926) |
+| Data link pair | tan/orange (914) and pink/light blue (915) |
+
+On the pickup, this connector sits on a bracket at the left rear of the engine compartment, and the diagram calls it the Data Link Connector. If the van's connector has the tan/orange and pink/light blue wires, it has the data link that live data would need.
+
+Colors can differ between pickup and van, and a previous owner may have moved wires. If the colors and the meter disagree, believe the meter.
 
 ## Identify the cavities with a meter
 

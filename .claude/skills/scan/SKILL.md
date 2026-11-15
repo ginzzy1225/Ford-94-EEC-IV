@@ -24,6 +24,7 @@ Before running anything, ask what the motorhome is doing: when it happens (cold,
 - Say what each code means in plain words (`eec_scan.py lookup <codes>`).
 - On-demand (key-on) codes are a fault present now. Memory codes were seen while driving and may be intermittent.
 - Group related codes. Several sensor codes at once can point to a shared ground, the signal return, or the reference-voltage feed rather than to each sensor.
+- The 1994 7.5L pickup diagram shows a MAP sensor (no MAF) and one oxygen sensor ([docs/pinout-1994-7.5L.md](../../../docs/pinout-1994-7.5L.md)). If MAF codes or second-sensor codes show up, check the decode and the vehicle before chasing them.
 - Point to the next check (a connector, a vacuum hose, a wiring test), not a part to buy. A code names a circuit.
 - Adaptive fuel codes: 179, 182, 188 and 191 mean running RICH (correction at its lean limit); 181, 183, 189 and 192 mean running LEAN. Probst's causes for lean include vacuum leaks, low fuel pressure and a purge valve stuck closed. For rich: high fuel pressure, purge, and oxygen sensor faults (p. 228).
 - If a decode looks off (an impossible code, a digit with more than 10 pulses), re-decode the log with `--replay` and adjusted limits before blaming the vehicle.

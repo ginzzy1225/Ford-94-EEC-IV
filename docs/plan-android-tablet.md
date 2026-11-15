@@ -1,13 +1,13 @@
 # Plan: Android tablet web app (and live data, if possible)
 
-Planning document, not yet built. Scoped 2026-11-14 and updated after checking the project against Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993*.
+Planning document, not yet built. Scoped 2026-11-14. Updated after checking the project against Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993*, and the 1994 7.5L pickup wiring diagram ([pinout-1994-7.5L.md](pinout-1994-7.5L.md)).
 
 ## Summary
 
 The plan is a single web page that runs in Chrome on an Android tablet and reads the EEC-IV self-test codes of the 1994 E-350 motorhome (7.5L 460). It talks to the same Arduino Nano reader as the laptop version, over USB or Bluetooth. Live data comes later, and only if a check on the motorhome shows it can be done.
 
 - **Phase 1 (committed):** codes on the tablet. That covers the key-on and memory codes, the engine-running test with big on-screen and audible prompts, erasing codes, the wiggle test, a code lookup and a saved history.
-- **Phase 2 (gated):** live data. A short investigation on the motorhome decides between three paths: the computer's own data link, tapping sensor signals directly, or not doing it.
+- **Phase 2 (gated):** live data. The 1994 7.5L pickup diagram shows the computer's data link wired to the self-test connector, so **Gate 1 probably passes**: the computer's own data link is the likely route. Still to confirm on the van, and the data link's message format still has to be learned. Tapping sensor signals directly stays as the fallback.
 - **Why a web page:** Chrome for Android added the Web Serial API in version 148 ([Notebookcheck](https://www.notebookcheck.net/Chrome-148-Beta-for-Android-adds-Web-Serial-SharedWorker-support.1269721.0.html)), so a page can talk to the Nano with no app to install. The same page also works on a Windows laptop in Chrome or Edge.
 
 ## What carries over and what changes
@@ -58,23 +58,23 @@ Phase 1 does everything the laptop scanner does, laid out for a tablet held in t
 
 ## Phase 2: live data, if it turns out to be possible
 
-Whether live data is possible depends on what's in the motorhome, so Phase 2 starts with a check on the vehicle, not with coding. There are three paths, tried in this order.
+The 1994 7.5L pickup wiring diagram shows a data pair from the computer (pin 9, pink/light blue, circuit 915, and pin 28, tan/orange, circuit 914) running to the self-test connector, which it calls the Data Link Connector ([pinout-1994-7.5L.md](pinout-1994-7.5L.md)). So the van very likely has the data link, and Path A is the main route. What's still unknown is the message format. There are three paths, tried in this order.
 
 | Path | What it gives | Depends on | Effort | Runs on the tablet |
 | --- | --- | --- | --- | --- |
-| A. The computer's data link (DCL) | The computer's own values: rpm, temperatures, throttle, O2, possibly fuel trim and timing | Wires in two specific cavities of the test connector, and a computer that supports it | High: the protocol is not published | Yes |
+| A. The computer's data link (DCL) | The computer's own values: rpm, temperatures, throttle, O2, possibly fuel trim and timing | The tan/orange and pink/light blue wires in the test connector (shown on the 1994 7.5L pickup), and learning the message format | High: the protocol is not published | Yes |
 | B. Tap the sensor signals directly | Raw sensor readings: coolant and air temp, throttle, O2, MAP, rpm, speed, injector on-time | Reaching the wires, usually at the computer's 60-pin connector | Medium: a small add-on board | Yes |
 | C. J3 service port logger (commercial) | Anything in the computer's memory, fast | Buying a Moates QuarterHorse plus software support for this computer | Low to build; costs money; laptop software | No |
 
-**Path A, the data link.** Ford scan tools of the era read live data from 1990+ EEC-IV vehicles over the data communications link (DCL) ([Actron manual](https://laundry.manualsonline.com/manuals/mfg/actron/9640a.html?p=75)). Not every EEC-IV supports it. It needs wires in cavities 1 and 3 of the test connector and the matching hardware in the computer ([ford-trucks.com](https://www.ford-trucks.com/forums/1803656-ect-question-3.html)). Probst names the DCL, shows Ford's NGS tester using a 5-pin STAR/DCL adapter, and lists the DCL fault codes 529 and 533. He gives no protocol. The practical route is still to borrow or buy a used DCL-capable scan tool, connect it, and record its traffic with the Nano to learn the messages. A 529 or 533 memory code would hint that this vehicle uses the link.
+**Path A, the data link.** Ford scan tools of the era read live data from 1990+ EEC-IV vehicles over the data communications link (DCL) ([Actron manual](https://laundry.manualsonline.com/manuals/mfg/actron/9640a.html?p=75)). Not every EEC-IV supports it. It needs the data wires in the test connector (said to be cavities 1 and 3) and the matching hardware in the computer ([ford-trucks.com](https://www.ford-trucks.com/forums/1803656-ect-question-3.html)). The 1994 7.5L pickup has both wires running to the computer's pins 9 and 28, which points to the hardware being there too. Probst names the DCL, shows Ford's NGS tester using a 5-pin STAR/DCL adapter, and lists the DCL fault codes 529 and 533. He gives no protocol. The practical route is still to borrow or buy a used DCL-capable scan tool, connect it, and record its traffic with the Nano to learn the messages. A 529 or 533 memory code would hint that this vehicle uses the link.
 
-**Path B, sensor taps.** This works no matter what the computer supports. A small board of voltage dividers and input protection feeds the Nano's inputs from the sensor wires, tapped in parallel without cutting anything. Probst's computer pinout (p. 137) and sensor signal ranges (p. 217) give the starting list. For example, the computer flags the coolant sensor when its signal leaves 4–91% of the 5 V reference. This reads what the sensors say, but not values the computer calculates (fuel trim, spark advance). Others have landed on the same fallback ([ford-trucks.com](https://www.ford-trucks.com/forums/1036028-tuning-our-ford-obdi-eec-iv-qh-tweecer-others-2.html)).
+**Path B, sensor taps.** This works no matter what the computer supports. A small board of voltage dividers and input protection feeds the Nano's inputs from the sensor wires, tapped in parallel without cutting anything. The 1994 7.5L pinout ([pinout-1994-7.5L.md](pinout-1994-7.5L.md)) lists every sensor wire by pin and color; Probst's pinout (p. 137) and sensor signal ranges (p. 217) give the starting list. For example, the computer flags the coolant sensor when its signal leaves 4–91% of the 5 V reference. This reads what the sensors say, but not values the computer calculates (fuel trim, spark advance). Others have landed on the same fallback ([ford-trucks.com](https://www.ford-trucks.com/forums/1036028-tuning-our-ford-obdi-eec-iv-qh-tweecer-others-2.html)).
 
 **Path C, the J3 port.** The QuarterHorse plugs into the computer's service port and can log any value in memory at over 20 samples a second ([Moates](https://moates.net/datalog-and-reflash-c-97.html)). It only works if software support exists for this specific computer, which isn't guaranteed ([Moates support](https://support.moates.net/tag/qh1/feed)). It's listed so the choice is complete.
 
 **Decision gates:**
 
-1. **Gate 1, look at the test connector.** If cavities 1 and 3 have wires, try Path A. If they're empty, skip to Path B.
+1. **Gate 1, look at the test connector: probably passes.** The 1994 7.5L pickup diagram shows the data pair wired. On the van, confirm a tan/orange and a pink/light blue wire in the 6-cavity connector. If both are there, go to Gate 2. If the van turns out not to have them, skip to Path B.
 2. **Gate 2, does the computer answer?** If a DCL-capable scan tool shows live data on this motorhome, record and decode its traffic (Path A). If not, go to Path B.
 3. **Gate 3, is Path B worth it?** Only if the Phase 1 codes haven't found the problem and a sensor reading would settle it.
 
@@ -114,12 +114,14 @@ Every real test's raw timing is saved, so a bad decode can be fixed later withou
 - **No signal at a campsite.** The page installs and caches itself, so it runs offline once loaded.
 - **Engine ID on this 3-digit computer** is unconfirmed (Probst p. 224 suggests it may be skipped). The prompts handle both cases; step 5 settles it.
 - **Connector layout:** pin numbers are confirmed by Probst, but cavity positions on this motorhome aren't. The meter checks and the paperclip test come first.
-- **Live data may not exist here.** Many trucks lack the data-link wires. Path B still gives sensor readings.
+- **Live data:** the data link is probably wired (pickup diagram), but its message format is unknown until a scan tool's traffic is recorded. Path B still gives sensor readings if that stalls.
+- **Pickup vs van:** the pinout and colors come from the 1994 7.5L pickup diagram. The van diagram hasn't been found.
 - **Open question:** what problems is the motorhome having? That decides how much Phase 2 is worth.
 
 ## Sources
 
 - Charles O. Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993*, Bentley Publishers (ISBN-10 0837603013): pp. 137 (wiring and pinout), 216–228 (Quick Test), 267–271 (3-digit codes)
+- *1994 Engine Performance Wiring Diagrams – Truck*, Fig. 21, Wiring Diagram (Pickup – 7.5L – 1 of 2), no. 94E66237, transcribed in [pinout-1994-7.5L.md](pinout-1994-7.5L.md)
 - [Notebookcheck: Chrome 148 for Android adds Web Serial](https://www.notebookcheck.net/Chrome-148-Beta-for-Android-adds-Web-Serial-SharedWorker-support.1269721.0.html)
 - [Chromium: Web Serial over Bluetooth on Android](https://groups.google.com/a/chromium.org/g/blink-dev/c/BqUGCcurReE)
 - [TestMu: Web Serial browser support](https://www.testmuai.com/web-technologies/web-serial/)

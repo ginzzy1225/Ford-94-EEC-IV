@@ -17,6 +17,7 @@ Reference, read when a step needs it:
 - [docs/wiring.md](docs/wiring.md): parts, the optocoupler circuit, bench checks, uploading
 - [docs/self-test.md](docs/self-test.md): how each test works, its timing, the operator steps
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms and fixes
+- [docs/pinout-1994-7.5L.md](docs/pinout-1994-7.5L.md): 1994 7.5L computer pinout and wire colors, from the pickup diagram (confirm on the van)
 - [docs/plan-android-tablet.md](docs/plan-android-tablet.md): the plan to run this from an Android tablet in Chrome, and the live-data investigation
 
 ## Rules
