@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EEC-IV Scanner</title>
+<meta name="theme-color" content="#1f2a33">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+:root {
+  --bg: #f4f2ec; --card: #ffffff; --ink: #1d1d1b; --muted: #5f5e5a; --line: #d8d5cc;
+  --accent: #1f6f8b; --accent-ink: #ffffff; --warn: #b5530f; --bad: #b3261e; --good: #2e7d32;
+  --lamp-off: #3a3a36; --lamp-on: #f4a300;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151816; --card: #20241f; --ink: #ecebe6; --muted: #a9a79f; --line: #3a3e38;
+          --accent: #4fb0cf; --accent-ink: #0d1a1f; --lamp-off: #2c2f2a; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
+  padding: 10px 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+header h1 { font-size: 18px; margin: 0; flex: 1 1 auto; }
+.pill { font-size: 14px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.pill.ok { color: var(--good); border-color: var(--good); }
+.pill.demo { color: var(--warn); border-color: var(--warn); }
+.lamp { width: 26px; height: 26px; border-radius: 50%; background: var(--lamp-off); border: 2px solid var(--line);
+  transition: background 60ms; flex: 0 0 auto; }
+.lamp.on { background: var(--lamp-on); box-shadow: 0 0 10px var(--lamp-on); }
+main { max-width: 760px; margin: 0 auto; padding: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 0 0 14px; }
+.card h2 { font-size: 19px; margin: 0 0 8px; }
+.muted { color: var(--muted); font-size: 15px; }
+button { font: inherit; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  padding: 12px 16px; min-height: 48px; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.danger { border-color: var(--bad); color: var(--bad); }
+button:disabled { opacity: .45; cursor: default; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.grid button { text-align: left; min-height: 64px; }
+.grid button small { display: block; color: var(--muted); font-size: 13px; font-weight: 400; }
+ol.check, ul.plain { padding-left: 22px; margin: 6px 0 12px; }
+ol.check li, ul.plain li { margin: 4px 0; }
+.codes { list-style: none; padding: 0; margin: 6px 0 12px; }
+.codes li { padding: 8px 0; border-top: 1px solid var(--line); }
+.codes b { font-size: 20px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+.note { color: var(--warn); font-size: 15px; display: block; margin-top: 2px; }
+.warn { color: var(--warn); }
+.status { font-size: 16px; margin: 8px 0; }
+.big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.log { font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace; max-height: 240px; overflow: auto;
+  background: var(--bg); border-radius: 8px; padding: 8px; margin-top: 8px; }
+input[type=text] { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); min-height: 48px; flex: 1 1 160px; }
+#cue { position: fixed; inset: 0; z-index: 50; display: none; flex-direction: column; justify-content: center;
+  align-items: center; text-align: center; padding: 24px; background: #12395a; color: #fff; }
+#cue.show { display: flex; }
+#cue.go { background: #0f5a2b; }
+#cue.fault { background: #8f1d16; }
+#cue h2 { font-size: 40px; line-height: 1.15; margin: 0 0 16px; }
+#cue p { font-size: 22px; max-width: 640px; margin: 0 0 24px; }
+#cue button { background: rgba(255,255,255,.15); color: #fff; border-color: rgba(255,255,255,.5); }
+.hidden { display: none !important; }
+.back { margin-bottom: 12px; }
+footer { color: var(--muted); font-size: 13px; text-align: center; padding: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="lamp" id="lamp" title="Mirrors the CHECK ENGINE light (self-test output)"></div>
+  <h1>EEC-IV Scanner</h1>
+  <span class="pill" id="connPill">Not connected</span>
+</header>
+
+<main>
+  <!-- HOME -->
+  <section id="v-home">
+    <div class="card">
+      <h2>Connect</h2>
+      <p class="muted" id="supportNote"></p>
+      <div class="row">
+        <button class="primary" id="btnConnect">Connect Nano (USB)</button>
+        <button id="btnConnectUsb" class="hidden">Try CH340 driver</button>
+        <button id="btnDemo">Demo (no hardware)</button>
+        <button id="btnDisconnect" class="hidden">Disconnect</button>
+      </div>
+    </div>
+    <div class="grid">
+      <button data-go="bench">Bench check<small>Watch the line, test STI</small></button>
+      <button data-go="koeo">Key-on test<small>Codes now + memory codes</small></button>
+      <button data-go="koer">Engine-running test<small>With timed cues</small></button>
+      <button data-go="clear">Erase memory codes<small>Ford's method</small></button>
+      <button data-go="wiggle">Wiggle test<small>Find intermittent wiring</small></button>
+      <button data-go="lookup">Code lookup<small>What a code means</small></button>
+      <button data-go="history">History<small>Saved tests, export</small></button>
+    </div>
+  </section>
+
+  <!-- BENCH -->
+  <section id="v-bench" class="hidden">
+    <button class="back" data-go="home">&larr; Back</button>
+    <div class="card">
+      <h2>Bench check</h2>
+      <p class="muted">With the Nano connected and nothing on the motorhome: the line should read idle. Touch the STO lead to SIG RTN and it should read ACTIVE (and the Nano's L light comes on). "Ground STI" should make STI and SIG RTN read low ohms on a meter.</p>
+      <p class="status">Line: <span class="big" id="benchState">?</span></p>
+      <div class="row">
+        <button id="btnSti">Ground STI</button>
+        <button id="btnBenchClear">Clear log</button>
+      </div>
+      <div class="log" id="benchLog"></div>
+    </div>
+  </section>
+
+  <!-- KEY ON ENGINE OFF -->
+  <section id="v-koeo" class="hidden">
+    <button class="back" data-go="home">&larr; Back</button>
+    <div class="card">
+      <h2>Key-on, engine-off test</h2>
+      <ol class="check">
+        <li>Engine warmed to operating temperature (a cold engine can set 116).</li>
+        <li>Park, parking brake on, wheels blocked, A/C, defrost, lights and blower off.</li>
+        <li>Key OFF for at least 10 seconds.</li>
+        <li>Reader connected: STO, SIG RTN, STI.</li>
+      </ol>
+      <div class="row"><button class="primary" id="btnKoeo">Start</button><button class="danger hidden" data-stop>Stop</button></div>
+      <p class="status" id="koeoStatus"></p>
+      <div id="koeoResult"></div>
+    </div>
+  </section>
+
+  <!-- ENGINE RUNNING -->
+  <section id="v-koer" class="hidden">
+    <button class="back" data-go="home">&larr; Back</button>
+    <div class="card">
+      <h2>Engine-running test</h2>
+      <ol class="check">
+        <li>Key-on codes fixed first (else the computer may refuse: code 998).</li>
+        <li>Engine fully warm, then 2000-2500 rpm for 2-3 minutes.</li>
+        <li>Engine OFF for 10 seconds. Park, parking brake, wheels chocked, loads off. Outdoors.</li>
+      </ol>
+      <p class="muted">The screen, a beep and a vibration tell you when: <b>right after the engine ID</b> (4 flashes) turn the wheel half a turn and release, press and release the brake, press the O/D button on and off. If one single flash comes later, snap the throttle wide open once, briefly.</p>
+      <div class="row"><button class="primary" id="btnKoer">Start</button><button class="danger hidden" data-stop>Stop</button></div>
+      <p class="status" id="koerStatus"></p>
+      <div id="koerResult"></div>
+    </div>
+  </section>
+
+  <!-- CLEAR -->
+  <section id="v-clear" class="hidden">
+    <button class="back" data-go="home">&larr; Back</button>
+    <div class="card">
+      <h2>Erase memory codes</h2>
+      <p>This erases the stored memory codes (Probst p. 228: release the self-test input once codes start). It doesn't erase the computer's learned adjustments.</p>
+      <p class="muted" id="clearLast"></p>
+      <ol class="check">
+        <li>Park, parking brake, loads off. Key OFF for 10 seconds.</li>
+      </ol>
+      <div class="row"><button class="primary" id="btnClear">Erase</button><button class="danger hidden" data-stop>Stop</button></div>
+      <p class="status" id="clearStatus"></p>
+    </div>
+  </section>
+
+  <!-- WIGGLE -->
+  <section id="v-wiggle" class="hidden">
+    <button class="back" data-go="home">&larr; Back</button>
+    <div class="card">
+      <h2>Wiggle test</h2>
+      <p>Ford's continuous monitor test (Probst p. 225). After it starts, wiggle and tap one connector or harness at a time. Each time the computer sees a fault the screen flashes red and beeps. <span class="warn">It erases memory codes: run the key-on test first.</span></p>
+      <div class="row">
+        <button class="primary" id="btnWiggleKey">Start, key on</button>
+        <button id="btnWiggleRun">Start, engine running</button>
+        <button class="danger hidden" data-stop>Stop</button>
+      </div>
+      <p class="status" id="wiggleStatus"></p>
+      <div class="log" id="wiggleLog"></div>
+    </div>
+  </section>
+
+  <!-- LOOKUP -->
+  <section id="v-lookup" class="hidden">
+    <button class="back" data-go="home">&larr; Back</button>
+    <div class="card">
+      <h2>Code lookup</h2>
+      <div class="row"><input type="text" id="lookupIn" inputmode="numeric" placeholder="e.g. 212 536"><button class="primary" id="btnLookup">Look up</button></div>
+      <ul class="codes" id="lookupOut"></ul>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="v-history" class="hidden">
+    <button class="back" data-go="home">&larr; Back</button>
+    <div class="card">
+      <h2>History</h2>
+      <p class="muted">Saved on this tablet. Export gives the same file the laptop scanner reads (<code>--replay</code>).</p>
+      <div class="row"><button id="btnExportAll">Export all</button></div>
+      <div id="historyList"></div>
+    </div>
+  </section>
+</main>
+
+<div id="cue" role="alertdialog" aria-live="assertive">
+  <h2 id="cueTitle"></h2>
+  <p id="cueText"></p>
+  <button id="cueOk">OK</button>
+</div>
+
+<footer>Ford EEC-IV self-test scanner &middot; 1994 E-350 7.5L &middot; <a href="https://github.com/ginzzy1225/Ford-94-EEC-IV">project</a></footer>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

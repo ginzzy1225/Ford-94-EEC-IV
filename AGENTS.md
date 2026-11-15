@@ -10,6 +10,7 @@ This computer does not stream live data. It runs built-in self-tests and flashes
 |---|---|
 | Set it up for the first time | [.claude/skills/hookup/SKILL.md](.claude/skills/hookup/SKILL.md) |
 | Read codes, run the tests, track down a problem | [.claude/skills/scan/SKILL.md](.claude/skills/scan/SKILL.md) |
+| Use the tablet / browser version, flash the Nano from a desktop | [docs/android.md](docs/android.md) |
 
 Reference, read when a step needs it:
 
@@ -21,6 +22,8 @@ Reference, read when a step needs it:
 - [docs/plan-android-tablet.md](docs/plan-android-tablet.md): the plan to run this from an Android tablet in Chrome, and the live-data investigation
 
 ## Rules
+
+0. **The person does field tests from an Android tablet** (no laptop); the desktop is for flashing and bench tests. The tablet runs `web/` in Chrome. Keep `pc/` and `web/` in step: the decoder logic is ported line for line, `web/js/codes.js` is generated from `pc/ford_codes.py`, and `tests/web` checks they agree.
 
 1. **Nothing in this repo has been measured on their motorhome yet.** The connector, procedures, timing and code table are checked against Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993* (Bentley). The person has a copy, and the docs cite its page numbers. The book covers 1988–93 and shows a "typical" system, so have them measure every cavity before any wire goes in ([docs/connector.md](docs/connector.md)), and stop if what they see doesn't fit. STO shares its wire with the CHECK ENGINE light, so it reads near battery voltage at rest; don't mistake it for the fuel pump lead.
 2. **Prove the laptop side first** with `--port DEMO`, so a later failure can only be wiring or the vehicle.
@@ -44,6 +47,9 @@ python3 -m venv .venv && .venv/bin/pip install -r pc/requirements.txt
 .venv/bin/python pc/eec_scan.py lookup 212 536
 .venv/bin/python pc/eec_scan.py --replay pc/logs/eec_koeo_XXXX.json --digit-gap 1000
 .venv/bin/python -m unittest discover tests          # decoder tests
+node --test tests/web/*.test.mjs                     # JS decoder must match Python (fixtures: tests/web/make_fixtures.py)
+.venv/bin/python tests/web/browser_demo.py           # web app end to end in headless Chrome, demo mode
+.venv/bin/python tools/gen_codes_js.py               # regenerate web/js/codes.js after editing pc/ford_codes.py
 ```
 
 `--port` defaults to `auto`. Close anything else using the Nano's port (the Arduino Serial Monitor) first.

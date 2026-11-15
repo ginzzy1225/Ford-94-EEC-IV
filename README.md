@@ -15,7 +15,7 @@ This is adapted from [xj-scanner](https://github.com/MZULALI/xj-scanner), which 
 
 > **Status: not yet tried on a real motorhome.** The decoder is tested against simulated pulse trains, and the sketch compiles. The connector, test procedures, code timing and code table are checked against Charles O. Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993* (Bentley), cited by page in the docs. Measure your own plug before connecting anything ([docs/connector.md](docs/connector.md)).
 >
-> **Next:** an Android tablet version that runs in Chrome. See [docs/plan-android-tablet.md](docs/plan-android-tablet.md).
+> **Tablet version:** `web/` is the same scanner as a web page for Chrome on an Android tablet (or desktop Chrome), with full-screen cues for the running test. Setup, flashing the Nano from a desktop, and field use: [docs/android.md](docs/android.md).
 
 ## The easy way
 
@@ -60,10 +60,11 @@ On Windows, use `py -m venv .venv` and `.venv\Scripts\python`.
 | Folder | What |
 |---|---|
 | `arduino/eec_bridge` | The Nano sketch: grounds the self-test input on command and timestamps the self-test output |
-| `pc/eec_scan.py` | The scanner: tests, prompts, logging, replay, code lookup |
+| `web/` | The scanner as a web page for Chrome on Android or desktop ([docs/android.md](docs/android.md)) |
+| `pc/eec_scan.py` | The laptop scanner: tests, prompts, logging, replay, code lookup |
 | `pc/eec_protocol.py` | Bridge link, pulse decoder, the simulated motorhome |
 | `pc/ford_codes.py` | EEC-IV 3-digit code descriptions |
-| `tests/` | Decoder tests (`python -m unittest discover tests`) |
+| `tests/` | Decoder tests (`python -m unittest discover tests`); `tests/web/`: JS decoder parity and a headless browser run |
 | `docs/` | The connector, the wiring, how the tests work, troubleshooting |
 | `.claude/skills/` | Step-by-step playbooks an agent follows with you |
 

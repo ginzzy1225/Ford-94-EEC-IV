@@ -1,6 +1,6 @@
 # Plan: Android tablet web app (and live data, if possible)
 
-Planning document, not yet built. Scoped 2026-11-14. Updated after checking the project against Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993*, and the 1994 7.5L pickup wiring diagram ([pinout-1994-7.5L.md](pinout-1994-7.5L.md)).
+**Phase 1 is built** (`web/`, 2026-11-14): see [android.md](android.md). Not yet tried on the tablet or the motorhome. Phase 2 is still a plan. Scoped 2026-11-14. Updated after checking the project against Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993*, and the 1994 7.5L pickup wiring diagram ([pinout-1994-7.5L.md](pinout-1994-7.5L.md)).
 
 ## Summary
 
