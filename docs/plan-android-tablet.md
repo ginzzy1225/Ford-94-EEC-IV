@@ -83,8 +83,8 @@ The 1994 7.5L pickup wiring diagram shows a data pair from the computer (pin 9, 
 
 **Hardware:** MAX485 modules have been bought (5 V, which matches the ELEGOO Nano: ATmega328P, CH340, USB-C). Planned wiring, not yet built:
 
-- The Nano's hardware serial port is used by USB, so the data link runs on two other pins with software serial. That's fine at 9600; workable at 19200.
-- MAX485 **RO** to the Nano's receive pin and **DI** to its transmit pin. **RE and DE** tied together to one Nano pin, to switch between talking and listening. **VCC** to 5 V, **GND** to Nano GND and signal return.
+- The Nano's hardware serial port is used by USB, so the data link runs on AltSoftSerial (D8/D9). That's fine at 9600 and 19200.
+- MAX485 **RO** to Nano D8 and **DI** to D9 (AltSoftSerial's fixed pins). **RE and DE** jumpered together to D7, to switch between talking and listening. **VCC** to 5 V, **GND** to the GND rail, which already joins signal return. Drawing and pin table: [wiring.md](wiring.md#later-the-max485-data-link-module-phase-2-not-used-for-codes).
 - **A and B** go to the tan/orange (914) and pink/light blue (915) wires. Polarity is unknown. Swapping them is harmless; it just won't talk until they're the right way round.
 - **Before connecting A and B:** with the key on, measure both data wires to ground. They should sit between 0 and 5 V. If either reads near 12 V, stop.
 - A new sketch mode (or a second sketch) would pass bytes between USB and the data link, so the laptop or tablet does the protocol work, the same split as the code reader.

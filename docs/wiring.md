@@ -97,11 +97,26 @@ On Windows the port is something like `COM4` (Device Manager → Ports). Clones 
 - Key OFF before plugging the wires in or pulling them out.
 - The reader adds about 7 mA to the STO line. Probst warns against anything that draws more than 0.5 A there (p. 219), so don't substitute a test light with a big bulb.
 
-## Later: the MAX485 data-link module (not used for codes)
+## Later: the MAX485 data-link module (Phase 2, not used for codes)
 
-A 5 V MAX485 RS-485 module is planned for reading live data over the computer's data link. It isn't part of the code reader, so leave it off the board for now. The planned wiring, the safety check before connecting it, and the test steps are in [plan-android-tablet.md](plan-android-tablet.md) (Phase 2, Path A). In short:
+A 5 V MAX485 RS-485 module is planned for reading live data over the computer's data link. It isn't part of the code reader, and no firmware drives it yet, so leave it off the board for code reading. Its three Nano pins (D7, D8, D9) don't touch the code-reader wiring, so it can be added later without changing anything above. The plan and the test steps are in [plan-android-tablet.md](plan-android-tablet.md) (Phase 2, Path A).
 
-- RO and DI go to two spare Nano pins (software serial); RE and DE are tied together to a third pin.
-- VCC goes to 5 V, and GND to Nano GND / signal return.
-- A and B go to the tan/orange and pink/light blue data wires, polarity still unknown.
-- **Before connecting A and B:** with the key on, both data wires must read between 0 and 5 V to ground. If either reads near 12 V, don't connect.
+![Full board with the MAX485: the code reader as above, plus the MAX485 module connecting the two data wires to Nano pins D7, D8 and D9](img/breadboard-wiring-max485.svg)
+
+| MAX485 pin | Goes to | Why |
+|---|---|---|
+| RO (receiver out) | Nano D8 | AltSoftSerial's receive pin on a Nano |
+| DI (driver in) | Nano D9 | AltSoftSerial's transmit pin on a Nano |
+| RE and DE | Jumpered together, to Nano D7 | One pin switches between listening (low) and talking (high) |
+| VCC | 5 V rail | |
+| GND | Blue (GND) rail | Shares the computer's ground through the ground tie, which RS-485 needs |
+| A | Tan/orange data wire (914) | First guess; polarity unknown |
+| B | Pink/light blue data wire (915) | Swap A and B if the computer never answers; it's harmless |
+
+Notes:
+
+- **AltSoftSerial** (an Arduino library) always uses D8 and D9 on a Nano. It handles 9600–19200 baud more reliably than the built-in SoftwareSerial. The Nano's hardware serial port stays on USB.
+- **Join RE and DE** with a short jumper on the module's header, so one Nano pin drives both.
+- **Terminating resistor:** most of these modules have a 120 Ω resistor across A and B, usually a small surface-mount part marked "121". It's meant for long networks and may load a short vehicle link. Leave it on at first. If the computer never answers at any speed or polarity, removing it is one of the things to try.
+- **Before connecting A and B:** with the key on, measure each data wire to ground. Both must read between 0 and 5 V. If either reads near 12 V, don't connect.
+- **Both red rails are 5 V:** if the board's top and bottom rails aren't already joined, jumper them, and the same for the blue GND rails.
