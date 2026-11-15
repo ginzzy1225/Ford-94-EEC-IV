@@ -9,7 +9,7 @@ Three wires run from the self-test connector under the hood to an Arduino Nano (
 - **Erase memory codes** (Ford's method)
 - **Wiggle test**, key on or engine running: beeps when the computer sees a fault while you wiggle wiring
 
-This computer doesn't stream live data like rpm or temperatures, so this reads codes only.
+The self-test wires carry codes only, not live data like rpm or temperatures. Live data over the computer's separate data link is a later, unproven phase ([docs/plan-android-tablet.md](docs/plan-android-tablet.md)).
 
 This is adapted from [xj-scanner](https://github.com/MZULALI/xj-scanner), which reads 1991–95 Jeep computers. The setup, the agent guides and the approach come from there. The Ford side is new.
 
@@ -34,7 +34,7 @@ You can read codes today with a paperclip. Jumper the one-wire self-test input t
 - Small breadboard and jumper wires
 - 2 PC817 optocouplers
 - 1 1N4148 diode
-- 2 470 Ω resistors and 1 1 kΩ resistor
+- 3 470 Ω resistors
 - Three wires with pins or clips on the end
 - A multimeter
 

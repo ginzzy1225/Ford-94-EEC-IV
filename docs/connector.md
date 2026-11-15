@@ -75,8 +75,11 @@ The reader connects to STO through an optocoupler LED and a diode in series, fed
 
 - **The real STO at rest** (about 12 V through the bulb): the diode blocks. The reader sees idle. When the computer pulls the line low to send a pulse, the reader sees ACTIVE.
 - **Fuel pump lead (12 V) or VREF (5 V):** the diode blocks, and the reader sees nothing, ever.
-- **A ground cavity:** the reader shows ACTIVE all the time, even with the key OFF. That's how you know it's on the wrong cavity.
+- **A ground cavity:** the reader shows ACTIVE all the time and never changes, whatever the key does. That's how you know it's on the wrong cavity.
 
-**Note:** with the key ON, the real STO can also read ACTIVE simply because the CHECK ENGINE light is on. So do the wrong-cavity check with the key OFF.
+**ACTIVE alone doesn't mean a wrong cavity.** The real STO reads ACTIVE whenever the CHECK ENGINE light is lit with the key ON. With the key OFF the real STO may read ACTIVE too: the CHECK ENGINE bulb ties the wire to the switched ignition feed, and with the key off other loads on that feed pull it toward ground. Not yet measured on the motorhome. To tell the real STO from a ground cavity:
+
+- **With the meter, key OFF:** ohms from the cavity to battery negative. A ground cavity reads under about 5 Ω, like signal return. The real STO reads more (the bulb and whatever is behind it), or open.
+- **With the reader:** the real STO *changes*. It goes idle at some point as the key is turned on or the engine runs with the light out, and it flickers during a self-test. A ground cavity stays ACTIVE through all of it.
 
 The current it adds to STO is about 7 mA. Probst warns against loading STO with more than 0.5 A (p. 219), so this is well under. The STI side goes through a 470 Ω resistor and a second optocoupler, so even a wrong cavity sees at most about 25 mA. Still, the STI wire goes only into the one-wire STI connector.

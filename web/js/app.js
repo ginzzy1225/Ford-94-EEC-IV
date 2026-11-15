@@ -1,5 +1,5 @@
 // EEC-IV Scanner, tablet / browser version. Same tests as pc/eec_scan.py, driven from Chrome.
-import { Timing, decode, edgesToPulses, LiveKoer } from "./decoder.js";
+import { Timing, decode, edgesToPulses, LiveKoer, codesStarted, recordingState, FIRST_PULSE_MS } from "./decoder.js";
 import { describe, testsFor, OPERATOR_STEP_CODES } from "./codes.js";
 import { WebSerialTransport, Ch340UsbTransport, DemoTransport, support } from "./transport.js";
 
@@ -89,6 +89,11 @@ function onMessage(msg) {
     setPill();
   } else if (msg.kind === "WARN") {
     toast(msg.text);
+    if (state.busy && msg.text.includes("STI TIMEOUT")) {
+      // the Nano's safety timer let go of the self-test input, so the test in progress has ended
+      cue("TEST ENDED", "The Nano's safety timer released the self-test input. Stop and start the test again.", "fault");
+      beep(330, 300, 2); buzz([600]);
+    }
   }
 }
 
@@ -190,11 +195,6 @@ document.querySelectorAll("[data-stop]").forEach((b) => b.addEventListener("clic
 // ---------------------------------------------------------------- test plumbing
 class Aborted extends Error {}
 
-function lastPulseEnd() {
-  const r = state.rec;
-  for (let i = r.length - 1; i >= 0; i--) if (!r[i][1]) return r[i][0];
-  return null;
-}
 const realMs = (ms) => (state.demo ? ms / state.transport.speed : ms);
 
 async function waitFor(pred, realTimeoutMs, onTick) {
@@ -209,18 +209,32 @@ async function waitFor(pred, realTimeoutMs, onTick) {
   return false;
 }
 
+// Records until the line has been quiet for quietMs after the last code flash.
+// Returns 'done', 'no_codes' (no flash at all) or 'timeout'.
 async function recordUntilQuiet(quietMs, maxMs, onTick) {
   const start = state.nowMs ?? 0;
-  let timedOut = false;
+  let ended = "timeout";
   await waitFor(() => {
-    const now = state.nowMs ?? 0;
-    const last = lastPulseEnd();
-    const active = state.rec.length && state.rec[state.rec.length - 1][1];
-    if (last !== null && now - last >= quietMs && !active) return true;
-    if (now - start >= maxMs) { timedOut = true; return true; }
-    return false;
+    const s = recordingState(state.rec, state.nowMs ?? 0, start, quietMs, maxMs, timing);
+    if (s === "recording") return false;
+    ended = s;
+    return true;
   }, realMs(maxMs) + 60000, onTick);
-  return timedOut;
+  return ended;
+}
+function endingText(ended) {
+  if (ended === "timeout") return "Stopped at the time limit; the list may be incomplete. ";
+  if (ended === "no_codes") return `The line changed, but no codes came in ${FIRST_PULSE_MS / 1000} s (see Troubleshooting in the docs). `;
+  return "Done. ";
+}
+// The Nano releases the self-test input by itself after 10 minutes. Re-sending the command
+// restarts that timer, so long tests call this from their tick.
+const STI_REFRESH_MS = 4 * 60 * 1000;
+let stiRefreshedAt = 0;
+function keepStiGrounded() {
+  if (performance.now() - stiRefreshedAt < STI_REFRESH_MS) return;
+  stiRefreshedAt = performance.now();
+  if (state.transport) state.transport.sti(true).catch(() => { /* the disconnect handler reports it */ });
 }
 
 function setRunning(section, on) {
@@ -309,12 +323,15 @@ $("btnKoeo").addEventListener("click", () => runTest("koeo", "koeoStatus", async
     return;
   }
   hideCue();
-  const timedOut = await recordUntilQuiet(15000, 300000, () => {
-    $("koeoStatus").textContent = `Receiving codes... ${flashCount()} flashes so far. The CHECK ENGINE light flashes them too. About a minute.`;
+  const ended = await recordUntilQuiet(15000, 300000, () => {
+    const n = flashCount();
+    $("koeoStatus").textContent = n
+      ? `Receiving codes... ${n} flashes so far. The CHECK ENGINE light flashes them too. About a minute.`
+      : "Key is on. Waiting for the computer to start flashing codes (it can take half a minute)...";
   });
   await state.transport.sti(false);
   const r = decode(state.rec, "koeo", timing, state.nowMs);
-  $("koeoStatus").textContent = (timedOut ? "Stopped at the time limit; the list may be incomplete. " : "Done. ") + "Turn the key OFF.";
+  $("koeoStatus").textContent = endingText(ended) + "Turn the key OFF.";
   renderResult($("koeoResult"), r);
   saveHistory("koeo", state.rec, r);
   beep(990, 150, 1);
@@ -346,16 +363,19 @@ $("btnKoer").addEventListener("click", () => runTest("koer", "koerStatus", async
     } else if (ev[0] === "goose") {
       cue("SNAP THE THROTTLE", "Wide open once, briefly, then let go.", "go", 6000);
       beep(990, 250, 3); buzz([500, 100, 500]);
+    } else if (ev[0] === "engine_id_late") {
+      cue("NOW", `${ev[1]} flashes: that looks like the engine ID after all. Wheel half a turn and release, brake on/off, O/D button on/off. Snap the throttle again if a single flash follows.`, "go", 8000);
+      beep(990, 250, 3); buzz([500, 100, 500]);
     } else if (ev[0] === "goose_no_id") {
       cue("SNAP THE THROTTLE NOW", "Single flash with no engine ID first. Then do the wheel, brake and O/D steps right away.", "go", 8000);
       beep(990, 250, 3); buzz([500, 100, 500]);
     }
   };
-  const timedOut = await recordUntilQuiet(30000, 300000, onTick);
+  const ended = await recordUntilQuiet(30000, 300000, onTick);
   await state.transport.sti(false);
   const r = decode(state.rec, "koer", timing, state.nowMs);
   hideCue();
-  $("koerStatus").textContent = (timedOut ? "Stopped at the time limit; the list may be incomplete. " : "Done. ") + "You can shut the engine off.";
+  $("koerStatus").textContent = endingText(ended) + "You can shut the engine off.";
   renderResult($("koerResult"), r);
   saveHistory("koer", state.rec, r);
   beep(990, 150, 1);
@@ -375,8 +395,9 @@ $("btnClear").addEventListener("click", () => {
     await startTest("koeo", "clearStatus");
     cue("Turn the key ON", "Do NOT start the engine.", "go");
     beep(660, 200, 2); buzz();
-    const got = await waitFor(() => flashCount() > 0, 60000, () => {
-      if (state.rec.length) $("clearStatus").textContent = "Waiting for the first code flash...";
+    // release only once a code is really coming out (two flashes of one code), not on a lone blink
+    const got = await waitFor(() => codesStarted(state.rec, timing), 60000 + realMs(FIRST_PULSE_MS), () => {
+      if (state.rec.length) $("clearStatus").textContent = "Key is on. Waiting for the codes to start...";
     });
     hideCue();
     if (!got) {
@@ -410,7 +431,9 @@ function wiggle(running) {
     await waitFor(() => false, realMs(1000));
     let mark = state.rec.length;
     $("wiggleStatus").textContent = "Monitoring. Wiggle and tap one connector or harness at a time. Stop when done.";
+    stiRefreshedAt = performance.now();
     await waitFor(() => false, 30 * 60 * 1000, () => {
+      keepStiGrounded();
       while (mark < state.rec.length) {
         const [, active] = state.rec[mark++];
         const stamp = new Date().toLocaleTimeString();

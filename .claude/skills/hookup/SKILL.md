@@ -68,7 +68,7 @@ Key OFF. SIG RTN first, then STI into the one-wire connector, then STO into the 
 .venv/bin/python pc/eec_scan.py watch --max-seconds 10
 ```
 
-with the key OFF first: it should say idle. ACTIVE with the key off means STO is on a ground cavity, so move it to the other candidate. Then key ON: ACTIVE now is fine. It just means the CHECK ENGINE light is lit, because the light shares the STO wire.
+with the key OFF first, then key ON. ACTIVE in either position can be normal: the CHECK ENGINE light shares the STO wire, so the line is ACTIVE while the light is lit, and with the key off the bulb can pull it toward ground through the switched feed. What matters is that the line *changes* with the key or during a test. If it stays ACTIVE no matter what, and the cavity reads under about 5 Ω to battery negative with the key off, STO is on a ground cavity: move it to the other candidate ([docs/connector.md](../../../docs/connector.md)).
 
 ## 6. First reading
 

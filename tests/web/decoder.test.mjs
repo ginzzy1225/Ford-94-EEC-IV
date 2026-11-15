@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { decode, LiveKoer, Timing, parseLine } from "../../web/js/decoder.js";
+import { decode, LiveKoer, Timing, parseLine, recordingState, codesStarted } from "../../web/js/decoder.js";
 import { describe, CODES } from "../../web/js/codes.js";
 
 const cases = JSON.parse(readFileSync(new URL("./fixtures.json", import.meta.url)));
@@ -13,6 +13,12 @@ for (const c of cases) {
     const edges = c.edges.map(([ms, a]) => [ms, a]);
     const r = decode(edges, c.mode, new Timing(), c.end_ms);
     assert.deepEqual(r, c.result);
+  });
+  test(`recorder stops at the same time as Python: ${c.name}`, () => {
+    const got = c.states.map(([now]) =>
+      [now, recordingState(c.edges.filter((e) => e[0] <= now), now, 0, c.quiet_ms, 300000, new Timing())]);
+    assert.deepEqual(got, c.states);
+    assert.equal(codesStarted(c.edges, new Timing()), c.codes_started);
   });
   if (c.live) {
     test(`live prompts match Python: ${c.name}`, () => {

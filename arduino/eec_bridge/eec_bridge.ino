@@ -12,7 +12,7 @@
 //
 // Wiring (see docs/wiring.md):
 //   D2  <- U1 phototransistor collector (U1 emitter to Nano GND). Low = STO active.
-//   D3  -> 1k -> U2 LED anode (U2 LED cathode to Nano GND). High = ground STI.
+//   D3  -> 470R -> U2 LED anode (U2 LED cathode to Nano GND). High = ground STI.
 //   5V  -> 470R -> U1 LED anode; U1 LED cathode -> 1N4148 anode; diode cathode -> STO wire
 //   U2 phototransistor collector -> 470R -> STI wire; U2 emitter -> SIG RTN wire
 //   Nano GND -> SIG RTN wire (the same wire)

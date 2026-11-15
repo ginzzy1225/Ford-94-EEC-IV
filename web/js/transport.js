@@ -167,7 +167,9 @@ export class Ch340UsbTransport {
     try {
       while (!this.closing) {
         const r = await this.device.transferIn(this.epIn, 64);
-        if (r.data && r.data.byteLength) this.lines.push(new Uint8Array(r.data.buffer));
+        if (r.data && r.data.byteLength) {
+          this.lines.push(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
+        }
       }
     } catch (e) {
       if (!this.closing && this.onClose) this.onClose(e);
@@ -211,6 +213,7 @@ export class DemoTransport {
     this.playing = "koeo";
     this.timer = null;
     this.lastK = -1e9;
+    this.lineActive = false;
   }
 
   nowMs() {
@@ -230,22 +233,30 @@ export class DemoTransport {
     const now = this.nowMs();
     while (this.queue.length && this.queue[0][0] <= now) {
       const [ms, active] = this.queue.shift();
+      this.lineActive = active;
       this.onMessage({ kind: "E", ms, active });
     }
     if (now - this.lastK >= 500) {
       this.lastK = now;
-      this.onMessage({ kind: "K", ms: now, sto: false, sti: this.stiOn });
+      this.onMessage({ kind: "K", ms: now, sto: this.lineActive, sti: this.stiOn });
     }
   }
 
   async sti(on) {
     const now = this.nowMs();
     if (on && !this.stiOn) {
+      // Like the real thing: with the key off the line reads active (the CHECK ENGINE bulb pulls
+      // it toward ground), it goes idle when the key is turned on, the light blinks once, and the
+      // computer takes a while before the first code.
       if (this.playing === "koer") {
-        this.queue = buildEdges(DemoTransport.SCENARIOS.koer, now + 3000, { section_gap: 9000 }).edges;
+        this.lineActive = true;
+        this.queue = [[now + 800, false],
+          ...buildEdges(DemoTransport.SCENARIOS.koer, now + 4000, { section_gap: 9000 }).edges];
       } else if (this.playing === "koeo") {
         const key = this.erased ? "koeo_cleared" : "koeo";
-        this.queue = buildEdges(DemoTransport.SCENARIOS[key], now + 2000, { fast_codes: true }).edges;
+        this.lineActive = true;
+        this.queue = [[now + 800, false], [now + 1200, true], [now + 1600, false],
+          ...buildEdges(DemoTransport.SCENARIOS[key], now + 21000, { fast_codes: true }).edges];
       } else if (this.playing === "wiggle") {
         // a couple of pretend faults while someone wiggles a harness
         this.queue = [[now + 14000, true], [now + 14400, false], [now + 22000, true], [now + 22300, false]];
@@ -256,6 +267,7 @@ export class DemoTransport {
     if (!on && this.stiOn && this.queue.length) {
       if (this.playing === "koeo") this.erased = true;
       this.queue = [];
+      this.lineActive = false;
     }
     this.stiOn = on;
     this.onMessage({ kind: "INFO", text: `OK STI ${on ? 1 : 0}` });

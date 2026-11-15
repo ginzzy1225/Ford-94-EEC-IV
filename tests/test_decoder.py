@@ -7,7 +7,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pc"))
 
-from eec_protocol import LiveKoer, Timing, build_edges, decode  # noqa: E402
+from eec_protocol import (LiveKoer, Timing, build_edges, codes_started, decode,  # noqa: E402
+                          recording_state)
 
 
 def jitter(edges, amount, seed=1):
@@ -130,6 +131,75 @@ class Koer(unittest.TestCase):
         live.feed(0, True)
         live.feed(4000, False)
         self.assertIsNone(live.tick(6000))
+
+    def test_stray_blink_before_engine_id(self):
+        # the light blinks once at key-on, then the real ID, snap request and codes follow
+        edges, _ = build_edges([["4"], ["1"], ["536"]], 6000, section_gap=9000)
+        r = decode(KEY_ON_BLINK + edges, "koer")
+        self.assertEqual(r["engine_id"], 4)
+        self.assertTrue(r["dynamic_response_seen"])
+        self.assertEqual(r["running"], ["536"])
+        self.assertTrue(any("lone flash" in w for w in r["warnings"]))
+
+    def test_live_stray_blink_then_late_id(self):
+        edges, end = build_edges([["4"], ["1"], ["172"]], 6000, section_gap=9000)
+        live = LiveKoer(Timing())
+        edges = KEY_ON_BLINK + edges
+        events, i = [], 0
+        for now in range(0, end + 5000, 50):
+            while i < len(edges) and edges[i][0] <= now:
+                live.feed(*edges[i])
+                i += 1
+            ev = live.tick(now)
+            if ev:
+                events.append(ev)
+        self.assertEqual([e[0] for e in events], ["id_start", "goose_no_id", "engine_id_late", "goose"])
+        self.assertEqual(events[2][1], 4)
+
+
+# what the line really does at the start of a test: active with the key off (through the CHECK
+# ENGINE bulb), idle when the key goes on, then one short blink of the light
+KEY_ON_BLINK = [(800, False), (1200, True), (1600, False)]
+
+
+class RealStart(unittest.TestCase):
+    def test_koeo_blink_is_not_the_separator(self):
+        edges, _ = build_edges([["113"], ["1"], ["212", "172"]], 21000, fast_codes=True)
+        r = decode(KEY_ON_BLINK + edges, "koeo")
+        self.assertEqual(r["on_demand"], ["113"])
+        self.assertEqual(r["memory"], ["212", "172"])
+        self.assertTrue(r["separator_seen"])
+        self.assertTrue(any("lone flash" in w for w in r["warnings"]))
+
+    def test_slow_start_does_not_end_the_test(self):
+        # key-on edge at 0.8 s, first code flash 40 s later: still recording, not "done"
+        t = Timing()
+        edges = [(800, False)]
+        self.assertEqual(recording_state(edges, 30000, 0, 15000, 300000, t), "recording")
+        self.assertEqual(recording_state(edges, 89000, 0, 15000, 300000, t), "recording")
+        self.assertEqual(recording_state(edges, 91000, 0, 15000, 300000, t), "no_codes")
+        codes, end = build_edges([["111"], ["1"], ["111"]], 40000)
+        edges += codes
+        self.assertEqual(recording_state(edges, end + 14000, 0, 15000, 300000, t), "recording")
+        self.assertEqual(recording_state(edges, end + 15000, 0, 15000, 300000, t), "done")
+        self.assertEqual(recording_state(edges, 300000, 0, 15000, 300000, t), "timeout")
+
+    def test_blink_does_not_start_the_quiet_clock(self):
+        # the light blinks at key-on, then nothing for 20 s: the test must keep listening
+        self.assertEqual(recording_state(KEY_ON_BLINK, 20000, 0, 15000, 300000), "recording")
+        self.assertEqual(recording_state(KEY_ON_BLINK, 92000, 0, 15000, 300000), "no_codes")
+
+    def test_pulse_in_progress_keeps_recording(self):
+        edges = [(0, True), (500, False), (1000, True), (1500, False), (2000, True)]
+        self.assertEqual(recording_state(edges, 60000, 0, 15000, 300000), "recording")
+
+    def test_erase_waits_for_a_real_code(self):
+        self.assertFalse(codes_started(KEY_ON_BLINK))
+        fast = [(t, a) for i in range(40) for t, a in ((2000 + i * 30, True), (2015 + i * 30, False))]
+        self.assertFalse(codes_started(KEY_ON_BLINK + fast))
+        edges, _ = build_edges([["113"]], 21000)
+        self.assertFalse(codes_started(KEY_ON_BLINK + edges[:2]))   # first flash of the code
+        self.assertTrue(codes_started(KEY_ON_BLINK + edges[:4]))    # second flash, 2 s later
 
 
 if __name__ == "__main__":

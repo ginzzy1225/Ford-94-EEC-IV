@@ -48,7 +48,7 @@
 <rect x="198" y="312" width="54" height="16" rx="2" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.75"/>
 <text class="ts" x="225" y="302" text-anchor="middle" fill="#5F5E5A">470 Ω</text>
 <rect x="428" y="312" width="54" height="16" rx="2" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.75"/>
-<text class="ts" x="455" y="302" text-anchor="middle" fill="#5F5E5A">1 kΩ</text>
+<text class="ts" x="455" y="302" text-anchor="middle" fill="#5F5E5A">470 Ω</text>
 <rect x="30" y="140" width="120" height="210" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.75"/>
 <text class="th" x="90" y="158" text-anchor="middle" fill="#712B13">To motorhome</text>
 <text class="th" x="140" y="175" text-anchor="end" fill="#712B13">STO</text>

@@ -39,7 +39,7 @@ What comes out (p. 216):
 3. 6–9 seconds of rest, **one separator pulse**, 6–9 seconds of rest
 4. **Memory codes:** faults the computer saw while driving, including intermittent ones. Each one is forgotten after the engine warms up 80 times without the fault coming back (40 on a few engines). For a problem that comes and goes, these are usually the most useful.
 
-It takes about a minute. The scanner stops 15 seconds after the last pulse.
+It takes about a minute. The scanner stops 15 seconds after the last pulse, counted only once a code has started. Before that it waits up to 90 seconds, because the key-on itself changes the line, the light may blink once, and the computer can take a while to send its first code. A lone flash before the first code is ignored, not taken as the separator.
 
 If the computer's first check, its own processor, fails, it holds the self-test output on continuously and stops the test (p. 218). The scanner reports that as a line that stayed active with no codes.
 
@@ -65,13 +65,13 @@ What comes out, and what you do:
 
 The 1–2 second window is short. So the scanner gives a heads-up as soon as the ID flashes start, and says NOW within about a second of the last one. **Run `koer` in a terminal you can see from the driver's seat**, or have someone call out the steps.
 
-**Unresolved: the engine ID on 3-digit systems.** Probst's Super STAR II procedure lists, for 3-digit vehicles, a dynamic response indicator but no engine ID (p. 224). If your computer does that, the first thing out is the single snap-the-throttle pulse. The scanner watches for this: a lone first pulse followed by a long rest gets a "snap the throttle now, then do the wheel, brake and O/D steps" prompt. The first real running test will show which way this computer works.
+**Unresolved: the engine ID on 3-digit systems.** Probst's Super STAR II procedure lists, for 3-digit vehicles, a dynamic response indicator but no engine ID (p. 224). If your computer does that, the first thing out is the single snap-the-throttle pulse. The scanner watches for this: a lone first pulse followed by a long rest gets a "snap the throttle now, then do the wheel, brake and O/D steps" prompt. The first real running test will show which way this computer works. A blink of the light while cranking looks the same as that lone pulse, so if 2 to 4 flashes follow a "no ID" call, the scanner treats them as the engine ID after all and gives the wheel, brake and O/D cue again.
 
 After the last running code, spark timing stays fixed for 2 minutes. With a timing light it should read base timing plus about 20° (17–23°). Base timing is on the VECI emissions sticker, usually 10° BTDC (pp. 223–224).
 
 ## Erasing memory codes (`clear`)
 
-Probst's method (p. 228): start the key-on test, and when the codes begin to show, remove the STI ground. That erases the memory codes without erasing the keep-alive memory, the computer's learned fuel and idle adjustments. The scanner does exactly that. Run `koeo` again afterward; memory should show 111.
+Probst's method (p. 228): start the key-on test, and when the codes begin to show, remove the STI ground. That erases the memory codes without erasing the keep-alive memory, the computer's learned fuel and idle adjustments. The scanner does exactly that, releasing on the second flash of the first code so a lone blink of the light can't trigger it early. Run `koeo` again afterward; memory should show 111.
 
 Disconnecting the battery also clears codes, but it wipes the learned adjustments too. The book says to expect driveability problems for 10 miles or more while the computer relearns.
 
@@ -82,7 +82,7 @@ Ford's Continuous Monitor Test (p. 225) is for finding an intermittent fault:
 - **Key on version:** key ON (don't start), ground STI for 10 seconds, release it, then ground it again.
 - **Engine running version:** if you just ran a key-on test, key OFF for 10 seconds first. Start the engine, then the same ground / release / ground sequence. Keep it running.
 
-After that, wiggle, tap and move one suspect sensor or harness at a time. When the computer sees a fault, the self-test output goes active and the CHECK ENGINE light comes on. The scanner beeps and timestamps every change. This erases memory codes, so run `koeo` first. It follows the book but hasn't been tried on this motorhome yet.
+After that, wiggle, tap and move one suspect sensor or harness at a time. When the computer sees a fault, the self-test output goes active and the CHECK ENGINE light comes on. The scanner beeps and timestamps every change. The Nano releases STI by itself after 10 minutes as a safety measure, so the scanner re-sends the command every few minutes to keep a long session going. This erases memory codes, so run `koeo` first. It follows the book but hasn't been tried on this motorhome yet.
 
 ## What this can't do (yet)
 

@@ -1,0 +1,30 @@
+# Runs the decoder tests (Python, and the JavaScript port against the same fixtures) on every push.
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Python decoder tests
+        run: python -m unittest discover tests
+      - name: Fixtures are up to date
+        run: |
+          python tests/web/make_fixtures.py
+          git diff --exit-code tests/web/fixtures.json
+      - name: Code table is up to date
+        run: |
+          python tools/gen_codes_js.py
+          git diff --exit-code web/js/codes.js
+      - name: JavaScript decoder matches Python
+        run: node --test tests/web/*.test.mjs

@@ -2,7 +2,7 @@
 
 You are helping someone read the engine computer of a 1994 Ford E-350 motorhome chassis with the 7.5L (460). The computer is a Ford EEC-IV (OBD-I). The connection runs through an Arduino Nano to a laptop. The person may never have used a breadboard or a multimeter, so go one step at a time, wait for them to report what they see, and explain in plain words.
 
-This computer does not stream live data. It runs built-in self-tests and flashes codes as pulses on its self-test output. The Nano grounds the self-test input to start a test and timestamps the pulses; `pc/eec_scan.py` decodes them.
+The self-test wires carry codes, not live data (live data over the separate data link is an unproven later phase; see the tablet plan). The computer runs built-in self-tests and flashes codes as pulses on its self-test output. The Nano grounds the self-test input to start a test and timestamps the pulses; `pc/eec_scan.py` decodes them.
 
 ## Start here
 

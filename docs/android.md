@@ -45,7 +45,7 @@ Then:
 **First time, at home with Wi-Fi:**
 
 1. Open the scanner's address in Chrome (section 4).
-2. Chrome menu → **Add to Home screen** (or **Install app**). From then on it opens from its icon and works without signal.
+2. Chrome menu → **Add to Home screen** (or **Install app**). From then on it opens from its icon and works without signal (with a weak signal it waits 3 seconds for the network, then uses the saved copy).
 3. Run **Demo** once.
 4. Plug in the Nano and tap **Connect Nano (USB)**.
    - If Chrome lists it, pick it. Done.
@@ -69,11 +69,14 @@ In order:
 
 Chrome only allows USB from pages served over https (or localhost), so the tablet needs the page at an https address. The repo includes `.github/workflows/pages.yml`, which publishes `web/` to GitHub Pages on every push to `main`. One-time setup in GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
-GitHub Pages is free for **public** repos. A private repo needs a paid GitHub plan for Pages. A free alternative that works with a private repo is Netlify or Cloudflare Pages connected to the repo, with `web` as the publish directory.
+GitHub Pages is free for **public** repos. A private repo needs a paid GitHub plan for Pages, and the published page is public either way (anyone with the address can open it; it holds no vehicle data, since test history stays on the tablet). A free alternative that works with a private repo is Netlify or Cloudflare Pages connected to the repo, with `web` as the publish directory.
 
 ## Tests
 
+`.github/workflows/tests.yml` runs the first two on every push and pull request.
+
 ```
+python -m unittest discover tests                   # Python decoder
 node --test tests/web/*.test.mjs                     # JS decoder = Python decoder, on shared fixtures
 python tests/web/make_fixtures.py                    # rebuild those fixtures after changing the decoder
 python tests/web/browser_demo.py                     # whole app in headless Chrome against the demo (needs playwright)

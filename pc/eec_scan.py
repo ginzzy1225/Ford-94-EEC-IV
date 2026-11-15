@@ -22,8 +22,10 @@ import sys
 import time
 
 import ford_codes
-from eec_protocol import (Bridge, BridgeError, DemoBridge, LiveKoer, Timing, decode, load_log,
-                          save_log)
+from eec_protocol import (FIRST_PULSE_MS, Bridge, BridgeError, DemoBridge, LiveKoer, Timing,
+                          codes_started, decode, load_log, recording_state, save_log)
+
+STI_REFRESH_S = 240  # the bridge releases STI by itself after 10 minutes; re-sending restarts that
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
@@ -99,19 +101,26 @@ def wait_for_activity(rec, seconds_real, what):
     return False
 
 
-def record_until_quiet(rec, quiet_ms, max_ms, on_tick=None):
-    """Keep recording until the line has been quiet for quiet_ms of vehicle time."""
+def record_until_quiet(rec, quiet_ms, max_ms, timing, on_tick=None):
+    """Keep recording until the line has been quiet for quiet_ms of vehicle time after the last
+    code flash. Returns 'done', 'no_codes' (no flash at all) or 'timeout'."""
     t_start = rec.now_ms or 0
     while True:
         rec.pump()
         now = rec.now_ms or 0
         if on_tick:
             on_tick(now)
-        last = rec.last_pulse_end()
-        if last is not None and now - last >= quiet_ms and not (rec.edges and rec.edges[-1][1]):
-            return "done"
-        if now - t_start >= max_ms:
-            return "timeout"
+        state = recording_state(rec.edges, now, t_start, quiet_ms, max_ms, timing)
+        if state != "recording":
+            return state
+
+
+def say_how_it_ended(state):
+    if state == "timeout":
+        say("Stopped at the time limit; the code list may be incomplete.")
+    elif state == "no_codes":
+        say(f"The line changed, but no codes came in {FIRST_PULSE_MS // 1000} s. "
+            "See docs/troubleshooting.md.")
 
 
 def print_codes(title, codes, test_letter):
@@ -166,12 +175,9 @@ def run_koeo(args, clear=False):
             return 1
         say("The computer is answering. Codes take about a minute; the check engine light flashes them too.")
         if clear:
-            # wait for the first real (slow) pulse, then release: that erases continuous memory
-            def first_slow_done():
-                from eec_protocol import edges_to_pulses
-                return bool(edges_to_pulses(rec.edges, timing)[0])
-            deadline = time.monotonic() + args.wait
-            while not first_slow_done():
+            # wait until a code is really coming out (two flashes of one code), then release
+            deadline = time.monotonic() + args.wait + FIRST_PULSE_MS / 1000
+            while not codes_started(rec.edges, timing):
                 rec.pump()
                 if time.monotonic() > deadline:
                     say("No codes started coming out, so nothing was erased. Turn the key OFF.")
@@ -181,9 +187,8 @@ def run_koeo(args, clear=False):
             say("Turn the key OFF. Run 'koeo' again to confirm memory shows 111.")
             save_log(log_path("clear"), "koeo", rec.edges, {"cleared": True}, timing)
             return 0
-        state = record_until_quiet(rec, quiet_ms=15000, max_ms=args.max_seconds * 1000)
-        if state == "timeout":
-            say("Stopped at the time limit; the code list may be incomplete.")
+        state = record_until_quiet(rec, quiet_ms=15000, max_ms=args.max_seconds * 1000, timing=timing)
+        say_how_it_ended(state)
         result = decode(rec.edges, "koeo", timing, end_ms=rec.now_ms)
         report(result)
         path = log_path("koeo")
@@ -234,13 +239,17 @@ def run_koer(args):
                       "O/D button on/off.")
             elif event[0] == "goose":
                 alert("Single flash: SNAP THE THROTTLE wide open once, briefly, then let go.")
+            elif event[0] == "engine_id_late":
+                alert(f"{event[1]} flashes: this looks like the engine ID after all (the earlier single flash "
+                      "was the light blinking). NOW: wheel half a turn and release, brake on/off, "
+                      "O/D button on/off. Snap the throttle again if one single flash follows.")
             elif event[0] == "goose_no_id":
                 alert("A single flash with no engine ID: SNAP THE THROTTLE wide open once now. "
                       "Then do the wheel, brake and O/D steps right away.")
 
-        state = record_until_quiet(rec, quiet_ms=30000, max_ms=args.max_seconds * 1000, on_tick=on_tick)
-        if state == "timeout":
-            say("Stopped at the time limit; the code list may be incomplete.")
+        state = record_until_quiet(rec, quiet_ms=30000, max_ms=args.max_seconds * 1000, timing=timing,
+                                   on_tick=on_tick)
+        say_how_it_ended(state)
         result = decode(rec.edges, "koer", timing, end_ms=rec.now_ms)
         report(result)
         path = log_path("koer")
@@ -288,8 +297,12 @@ def run_wiggle(args):
         say("A beep and a FAULT line means the computer just saw a fault (the CHECK ENGINE light")
         say("flashes too). Ctrl+C to stop.")
         end = time.monotonic() + args.max_seconds
+        refresh_at = time.monotonic() + STI_REFRESH_S
         while time.monotonic() < end:
             rec.pump()
+            if time.monotonic() >= refresh_at:
+                bridge.sti(True)  # keeps the bridge's 10-minute safety release from ending the test
+                refresh_at = time.monotonic() + STI_REFRESH_S
             while mark < len(rec.edges):
                 ms, active = rec.edges[mark]
                 mark += 1

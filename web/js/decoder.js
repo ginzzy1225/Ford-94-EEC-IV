@@ -85,6 +85,9 @@ function unique(codes) {
   return out;
 }
 
+const STRAY_WARNING = "a lone flash came before the codes (ignored): usually the CHECK ENGINE light " +
+  "blinking as the key was turned or the engine cranked";
+
 const isSingle = (tok, d) => tok.digits.length === 1 && tok.digits[0] === d;
 
 export function interpret(tokens, mode) {
@@ -95,9 +98,14 @@ export function interpret(tokens, mode) {
     }
   }
   if (mode === "koeo") {
-    const sep = tokens.findIndex((t) => isSingle(t, 1));
-    const before = sep < 0 ? tokens : tokens.slice(0, sep);
-    const after = sep < 0 ? [] : tokens.slice(sep + 1);
+    // Codes have three digits. Lone flashes before the first real code are not the separator:
+    // the CHECK ENGINE light shares the wire and can blink as the key is turned on.
+    const firstCode = Math.max(0, tokens.findIndex((t) => t.digits.length > 1));
+    if (firstCode) result.warnings.push(STRAY_WARNING);
+    const body = tokens.slice(firstCode);
+    const sep = body.findIndex((t) => isSingle(t, 1));
+    const before = sep < 0 ? body : body.slice(0, sep);
+    const after = sep < 0 ? [] : body.slice(sep + 1);
     result.on_demand = unique(before.map(tokenText));
     result.memory = unique(after.map(tokenText));
     result.separator_seen = sep >= 0;
@@ -106,6 +114,11 @@ export function interpret(tokens, mode) {
     }
   } else {
     const rest = tokens.slice();
+    // a lone flash followed by the engine ID is a stray, not the throttle-snap request
+    if (rest.length >= 2 && isSingle(rest[0], 1) && rest[1].digits.length === 1 && rest[1].digits[0] !== 1) {
+      rest.shift();
+      result.warnings.push(STRAY_WARNING);
+    }
     result.engine_id = null;
     if (rest.length && rest[0].digits.length === 1 && rest[0].digits[0] !== 1) {
       result.engine_id = rest.shift().digits[0];
@@ -144,6 +157,34 @@ export function decode(edges, mode, timing = new Timing(), endMs = null) {
   return result;
 }
 
+// True once two slow pulses of the same code have come out. The erase procedure releases the
+// self-test input then; one lone flash is not enough (the light can blink once at key-on).
+export function codesStarted(edges, timing = new Timing()) {
+  const { pulses } = edgesToPulses(edges, timing);
+  for (let i = 1; i < pulses.length; i++) {
+    if (pulses[i][0] - pulses[i - 1][1] < timing.code_gap) return true;
+  }
+  return false;
+}
+
+export const FIRST_PULSE_MS = 90000; // how long to wait for a code to start before giving up
+
+// Is a test still coming in? 'recording', 'done', 'no_codes' or 'timeout'. The quiet period only
+// counts once a code is really coming out (codesStarted): turning the key on changes the line
+// too, the light can blink once, and the computer can take a while before its first code. Until
+// a code starts, it waits firstPulseMs after the last change. Same as recording_state in Python.
+export function recordingState(edges, nowMs, startMs, quietMs, maxMs, timing = new Timing(), firstPulseMs = FIRST_PULSE_MS) {
+  if (nowMs - startMs >= maxMs) return "timeout";
+  if (!codesStarted(edges, timing)) {
+    const lastChange = edges.length ? Math.max(startMs, edges[edges.length - 1][0]) : startMs;
+    return nowMs - lastChange >= firstPulseMs ? "no_codes" : "recording";
+  }
+  if (edges[edges.length - 1][1]) return "recording";
+  let last = null;
+  for (let i = edges.length - 1; i >= 0; i--) if (!edges[i][1]) { last = edges[i][0]; break; }
+  return nowMs - last >= quietMs ? "done" : "recording";
+}
+
 // Watches a running test as it happens and says when to do the operator steps (Probst p. 224:
 // wheel / brake / O/D within 1-2 s of the engine ID). Same rules as LiveKoer in Python.
 export class LiveKoer {
@@ -155,7 +196,18 @@ export class LiveKoer {
     this.started = false;
     this.idDone = false;
     this.gooseDone = false;
+    this.lateIdOpen = false;
     this.idPulses = 0;
+  }
+
+  // How many pulses are in the digit now ending (rests shorter than a digit gap).
+  lastGroup(pulses) {
+    let n = 1;
+    for (let i = pulses.length - 1; i > 0; i--) {
+      if (pulses[i][0] - pulses[i - 1][1] >= this.timing.digit_gap) break;
+      n += 1;
+    }
+    return n;
   }
 
   feed(ms, active) {
@@ -173,15 +225,31 @@ export class LiveKoer {
     const quiet = nowMs - pulses[pulses.length - 1][1];
     const snapWait = this.timing.digit_gap * 2 + 200;
     const n = pulses.length;
+    const group = this.lastGroup(pulses);
     if (!this.idDone) {
-      if (n >= 2 && quiet >= LiveKoer.END_OF_DIGIT_MS) {
+      if (group >= 2 && quiet >= LiveKoer.END_OF_DIGIT_MS) {
         this.idDone = true;
         this.idPulses = n;
-        return ["engine_id", n];
+        return ["engine_id", group];
       }
-      if (n === 1 && quiet >= snapWait) {
-        this.idDone = this.gooseDone = true;
+      if (group === 1 && quiet >= snapWait) {
+        this.idDone = this.gooseDone = this.lateIdOpen = true;
+        this.idPulses = n;
         return ["goose_no_id", null];
+      }
+      return null;
+    }
+    // A blink of the light at key-on looks like a lone first pulse. If 2-4 flashes follow a
+    // "no ID" call, report a late engine ID and start the throttle-snap watch over.
+    if (this.lateIdOpen) {
+      const after = n - this.idPulses;
+      if (after >= 1 && quiet >= LiveKoer.END_OF_DIGIT_MS) {
+        this.lateIdOpen = false;
+        if (after === group && group >= 2 && group <= 4) {
+          this.idPulses = n;
+          this.gooseDone = false;
+          return ["engine_id_late", group];
+        }
       }
       return null;
     }

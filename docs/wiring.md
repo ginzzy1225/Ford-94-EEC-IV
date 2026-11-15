@@ -6,7 +6,7 @@
 - Small breadboard and jumper wires
 - 2 × PC817 optocouplers (4-pin DIP; often sold in packs)
 - 1 × 1N4148 diode (any small signal diode works)
-- 2 × 470 Ω resistors, 1 × 1 kΩ resistor
+- 3 × 470 Ω resistors
 - Three wires long enough to reach from the plug to the laptop, with small male pins, spade terminals or alligator clips on the far ends so they fit the cavities
 - A multimeter
 
@@ -46,7 +46,7 @@ The same circuit as text:
 
             U2: grounds the self-test input (STI)
 
- Nano D3 ── 1kΩ ── U2 pin 1         U2 pin 4 ── 470Ω ── wire STI
+ Nano D3 ── 470Ω ─ U2 pin 1         U2 pin 4 ── 470Ω ── wire STI
  Nano GND ──────── U2 pin 2         U2 pin 3 ────────── wire SIG RTN
 
 
@@ -63,9 +63,9 @@ Three wires go to the motorhome, so label them with tape:
 
 How it works:
 
-- At rest, STO sits near 12 V through the CHECK ENGINE bulb, which shares the wire (Probst p. 137). The diode blocks, so nothing flows and the reader shows idle.
+- At rest, STO sits near 12 V through the CHECK ENGINE bulb, which shares the wire (Probst p. 137). The diode blocks, so nothing flows and the reader shows idle. (That's with the key ON and the light out. With the key OFF the real STO may read ACTIVE too: the CHECK ENGINE bulb ties the wire to the switched ignition feed, and with the key off other loads on that feed pull it toward ground. That's expected; see [connector.md](connector.md).)
 - When the computer flashes a code, it pulls STO to ground. Current flows from the Nano's 5 V through the 470 Ω resistor, U1's LED and the diode into STO. U1's transistor then pulls D2 low, and the Nano records the time. The Nano's own LED (marked L) flashes along with the codes.
-- When the laptop says to start a test, D3 goes high and lights U2's LED. U2's transistor then connects STI to signal return, which is the same thing the paperclip did.
+- When the laptop says to start a test, D3 goes high and lights U2's LED. U2's transistor then connects STI to signal return, which is the same thing the paperclip did. The 470 Ω on D3 gives the LED about 8 mA, so the transistor can sink at least 4 mA and pull STI firmly low. (An earlier version of this drawing used 1 kΩ there, which left little margin.)
 
 ## Bench checks before going to the motorhome
 

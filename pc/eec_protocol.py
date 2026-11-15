@@ -112,6 +112,10 @@ def _unique(codes):
     return out
 
 
+STRAY_WARNING = ("a lone flash came before the codes (ignored): usually the CHECK ENGINE light "
+                 "blinking as the key was turned or the engine cranked")
+
+
 def interpret(tokens, mode):
     """Sort the tokens into what the test means. mode: 'koeo' or 'koer'."""
     result = {"mode": mode, "warnings": [], "sequence": " ".join(token_text(t) for t in tokens)}
@@ -120,9 +124,15 @@ def interpret(tokens, mode):
             result["warnings"].append(f"a digit had more than 10 pulses ({token_text(t)}): timing limits may be off")
 
     if mode == "koeo":
-        sep = next((i for i, t in enumerate(tokens) if t["digits"] == [1]), None)
-        before = tokens if sep is None else tokens[:sep]
-        after = [] if sep is None else tokens[sep + 1:]
+        # Codes have three digits. Lone flashes before the first real code are not the separator:
+        # the CHECK ENGINE light shares the wire and can blink as the key is turned on.
+        first_code = next((i for i, t in enumerate(tokens) if len(t["digits"]) > 1), 0)
+        if first_code:
+            result["warnings"].append(STRAY_WARNING)
+        body = tokens[first_code:]
+        sep = next((i for i, t in enumerate(body) if t["digits"] == [1]), None)
+        before = body if sep is None else body[:sep]
+        after = [] if sep is None else body[sep + 1:]
         result["on_demand"] = _unique(token_text(t) for t in before)
         result["memory"] = _unique(token_text(t) for t in after)
         result["separator_seen"] = sep is not None
@@ -130,6 +140,12 @@ def interpret(tokens, mode):
             result["warnings"].append("no separator pulse seen: memory codes may be missing (test cut short?)")
     else:
         rest = list(tokens)
+        # a lone flash followed by the engine ID is a stray (the light blinking at key-on or while
+        # cranking), not the throttle-snap request, which comes after the ID
+        if (len(rest) >= 2 and rest[0]["digits"] == [1] and len(rest[1]["digits"]) == 1
+                and rest[1]["digits"] != [1]):
+            rest.pop(0)
+            result["warnings"].append(STRAY_WARNING)
         result["engine_id"] = None
         if rest and len(rest[0]["digits"]) == 1 and rest[0]["digits"] != [1]:
             result["engine_id"] = rest.pop(0)["digits"][0]
@@ -164,6 +180,37 @@ def decode(edges, mode, timing=None, end_ms=None):
     return result
 
 
+def codes_started(edges, timing=None):
+    """True once two slow pulses of the same code have come out. Used by the erase procedure, which
+    must release the self-test input while codes are being sent; one lone flash is not enough,
+    because the CHECK ENGINE light can blink once at key-on."""
+    timing = timing or Timing()
+    pulses, _ = edges_to_pulses(edges, timing)
+    return any(b[0] - a[1] < timing.code_gap for a, b in zip(pulses, pulses[1:]))
+
+
+FIRST_PULSE_MS = 90000  # how long to wait for a code to start before giving up
+
+
+def recording_state(edges, now_ms, start_ms, quiet_ms, max_ms, timing=None, first_pulse_ms=FIRST_PULSE_MS):
+    """Is a test still coming in? Returns 'recording', 'done', 'no_codes' or 'timeout'.
+
+    The quiet period only counts once a code is really coming out (codes_started). Turning the
+    key on changes the line too (the CHECK ENGINE bulb shares the wire), the light can blink once,
+    and the computer can take a while to finish its checks before the first code, so none of that
+    may start the clock. Until a code starts, it waits first_pulse_ms after the last change."""
+    timing = timing or Timing()
+    if now_ms - start_ms >= max_ms:
+        return "timeout"
+    if not codes_started(edges, timing):
+        last_change = max(start_ms, edges[-1][0]) if edges else start_ms
+        return "no_codes" if now_ms - last_change >= first_pulse_ms else "recording"
+    if edges[-1][1]:
+        return "recording"  # a pulse is in progress
+    last = next(ms for ms, active in reversed(edges) if not active)
+    return "done" if now_ms - last >= quiet_ms else "recording"
+
+
 class LiveKoer:
     """Watches a running test as it happens and says when to do the operator steps.
 
@@ -172,6 +219,11 @@ class LiveKoer:
     (a rest longer than the 1/2 s between pulses of a digit). A lone first pulse followed by a
     long rest is taken as the throttle-snap request of a system that sends no engine ID.
     Only completed slow pulses count, so the CHECK ENGINE light lit while cranking is ignored.
+
+    A short blink of the light at key-on looks just like that lone pulse. So if a group of 2-4
+    flashes follows a "no ID" call, it is reported as a late engine ID ('engine_id_late') and the
+    throttle-snap watch starts over. On a system that really sends no ID, that group can be the
+    first digit of a code; the extra cue is harmless, since the steps are due then anyway.
     """
 
     END_OF_DIGIT_MS = 800
@@ -182,7 +234,17 @@ class LiveKoer:
         self.started = False
         self.id_done = False
         self.goose_done = False
+        self.late_id_open = False
         self.id_pulses = 0
+
+    def _last_group(self, pulses):
+        """How many pulses are in the digit now ending (rests shorter than a digit gap)."""
+        n = 1
+        for i in range(len(pulses) - 1, 0, -1):
+            if pulses[i][0] - pulses[i - 1][1] >= self.timing.digit_gap:
+                break
+            n += 1
+        return n
 
     def feed(self, ms, active):
         self.edges.append((ms, active))
@@ -199,14 +261,25 @@ class LiveKoer:
         quiet = now_ms - pulses[-1][1]
         snap_wait = self.timing.digit_gap * 2 + 200
         n = len(pulses)
+        group = self._last_group(pulses)
         if not self.id_done:
-            if n >= 2 and quiet >= self.END_OF_DIGIT_MS:
+            if group >= 2 and quiet >= self.END_OF_DIGIT_MS:
                 self.id_done = True
                 self.id_pulses = n
-                return ("engine_id", n)
-            if n == 1 and quiet >= snap_wait:
-                self.id_done = self.goose_done = True
+                return ("engine_id", group)
+            if group == 1 and quiet >= snap_wait:
+                self.id_done = self.goose_done = self.late_id_open = True
+                self.id_pulses = n
                 return ("goose_no_id", None)
+            return None
+        if self.late_id_open:
+            after = n - self.id_pulses
+            if after >= 1 and quiet >= self.END_OF_DIGIT_MS:
+                self.late_id_open = False
+                if after == group and 2 <= group <= 4:
+                    self.id_pulses = n
+                    self.goose_done = False
+                    return ("engine_id_late", group)
             return None
         if not self.goose_done:
             after = n - self.id_pulses
@@ -352,6 +425,7 @@ class DemoBridge:
         self.sent_k = 0
         self.erased = False
         self.timeline_end = None
+        self.line_active = False
         on_info(f"Bridge found: EECBRIDGE 1.0 (DEMO, {mode}, running {speed:g}x real time)")
 
     def now_ms(self):
@@ -361,11 +435,17 @@ class DemoBridge:
         now = self.now_ms()
         if on and not self.sti_on:
             key = "koeo_cleared" if (self.mode == "koeo" and self.erased) else self.mode
+            # Like the real thing: with the key off the line reads active (the CHECK ENGINE bulb
+            # pulls it toward ground), it goes idle when the key is turned on, the light blinks
+            # once, and the computer takes a while before the first code.
+            self.line_active = True
             if self.mode == "koer":
-                edges, end = build_edges(self.SCENARIOS["koer"], now + 3000, section_gap=9000)
+                edges, end = build_edges(self.SCENARIOS["koer"], now + 4000, section_gap=9000)
+                edges = [(now + 800, False)] + edges
                 # a stuck brake-switch step would show here as 536; this demo did it right
             else:
-                edges, end = build_edges(self.SCENARIOS[key], now + 2000, fast_codes=True)
+                edges, end = build_edges(self.SCENARIOS[key], now + 21000, fast_codes=True)
+                edges = [(now + 800, False), (now + 1200, True), (now + 1600, False)] + edges
             self.queue = edges
             self.timeline_end = end
         if not on and self.sti_on and self.queue:
@@ -373,6 +453,7 @@ class DemoBridge:
             if self.mode == "koeo":
                 self.erased = True
             self.queue = []
+            self.line_active = False
         self.sti_on = on
 
     def poll(self):
@@ -381,10 +462,11 @@ class DemoBridge:
         out = []
         while self.queue and self.queue[0][0] <= now:
             ms, active = self.queue.pop(0)
+            self.line_active = active
             out.append(("E", ms, active))
         if now - self.sent_k >= 500:
             self.sent_k = now
-            out.append(("K", now, False, self.sti_on))
+            out.append(("K", now, self.line_active, self.sti_on))
         return out
 
     def close(self):
