@@ -9,6 +9,22 @@ Go one step at a time. After each step, wait for the person to tell you what the
 
 Read [docs/connector.md](../../../docs/connector.md) and [docs/wiring.md](../../../docs/wiring.md) before you start.
 
+## 0. Before going out to the motorhome
+
+Go through this with them before the first field session:
+
+1. **What is it doing?** When the problem happens (cold, hot, climbing, at idle), how long it's been going on, and what has been replaced. That decides which tests matter.
+2. **Has the battery been disconnected lately?** That wipes the memory codes, usually the most useful ones. If it has, drive it a while first.
+3. **Battery and grounds:** charge the battery fully. A weak battery or bad grounds cause false codes.
+4. **CHECK ENGINE bulb:** it should light every time the key goes to START. The paperclip test and finding STO both need it.
+5. **Engine computer label:** on the pickup it's on the left side of the firewall. Write down the part number and the short catalog code; the data-link work needs it.
+6. **Emissions sticker (VECI)** under the hood: base timing and the vacuum hose layout. A photo is fine.
+7. **Bench work first:** steps 1, 3 and 4 below (laptop side, board, sketch and bench checks) are done at home, so the field session is only wiring and testing.
+8. **Kit to bring:** laptop on a charged battery, the Nano board, multimeter, back-probe pins, a paperclip or short jumper, flashlight, notebook, wheel chocks.
+9. **Session order:** find the plug and measure (step 2), paperclip test, connect (step 5), key-on test (step 6). Then the running test, outdoors with the wheels chocked. Its first run also shows whether this computer sends an engine ID. Write down what the CHECK ENGINE light does.
+
+The MAX485 data-link module isn't needed for any of this; leave it off the breadboard for code reading.
+
 ## 1. Laptop side (no vehicle needed)
 
 ```sh

@@ -83,3 +83,12 @@ On Windows the port is something like `COM4` (Device Manager → Ports). Clones 
 - Run the laptop on its battery during tests, not plugged into the motorhome's inverter or shore power. The Nano's ground is tied to the engine computer's signal return.
 - Key OFF before plugging the wires in or pulling them out.
 - The reader adds about 7 mA to the STO line. Probst warns against anything that draws more than 0.5 A there (p. 219), so don't substitute a test light with a big bulb.
+
+## Later: the MAX485 data-link module (not used for codes)
+
+A 5 V MAX485 RS-485 module is planned for reading live data over the computer's data link. It isn't part of the code reader, so leave it off the board for now. The planned wiring, the safety check before connecting it, and the test steps are in [plan-android-tablet.md](plan-android-tablet.md) (Phase 2, Path A). In short:
+
+- RO and DI go to two spare Nano pins (software serial); RE and DE are tied together to a third pin.
+- VCC goes to 5 V, and GND to Nano GND / signal return.
+- A and B go to the tan/orange and pink/light blue data wires, polarity still unknown.
+- **Before connecting A and B:** with the key on, both data wires must read between 0 and 5 V to ground. If either reads near 12 V, don't connect.

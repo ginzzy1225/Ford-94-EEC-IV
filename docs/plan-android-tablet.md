@@ -66,7 +66,28 @@ The 1994 7.5L pickup wiring diagram shows a data pair from the computer (pin 9, 
 | B. Tap the sensor signals directly | Raw sensor readings: coolant and air temp, throttle, O2, MAP, rpm, speed, injector on-time | Reaching the wires, usually at the computer's 60-pin connector | Medium: a small add-on board | Yes |
 | C. J3 service port logger (commercial) | Anything in the computer's memory, fast | Buying a Moates QuarterHorse plus software support for this computer | Low to build; costs money; laptop software | No |
 
-**Path A, the data link.** Ford scan tools of the era read live data from 1990+ EEC-IV vehicles over the data communications link (DCL) ([Actron manual](https://laundry.manualsonline.com/manuals/mfg/actron/9640a.html?p=75)). Not every EEC-IV supports it. It needs the data wires in the test connector (said to be cavities 1 and 3) and the matching hardware in the computer ([ford-trucks.com](https://www.ford-trucks.com/forums/1803656-ect-question-3.html)). The 1994 7.5L pickup has both wires running to the computer's pins 9 and 28, which points to the hardware being there too. Probst names the DCL, shows Ford's NGS tester using a 5-pin STAR/DCL adapter, and lists the DCL fault codes 529 and 533. He gives no protocol. The practical route is still to borrow or buy a used DCL-capable scan tool, connect it, and record its traffic with the Nano to learn the messages. A 529 or 533 memory code would hint that this vehicle uses the link.
+**Path A, the data link.** Ford scan tools of the era read live data from 1990+ EEC-IV vehicles over the data communications link (DCL) ([Actron manual](https://laundry.manualsonline.com/manuals/mfg/actron/9640a.html?p=75)). Not every EEC-IV supports it. It needs the data wires in the test connector (said to be cavities 1 and 3) and the matching hardware in the computer ([ford-trucks.com](https://www.ford-trucks.com/forums/1803656-ect-question-3.html)). The 1994 7.5L pickup has both wires running to the computer's pins 9 and 28, which points to the hardware being there too. Probst names the DCL, shows Ford's NGS tester using a 5-pin STAR/DCL adapter, and lists the DCL fault codes 529 and 533. He gives no protocol. A 529 or 533 memory code would hint that this vehicle uses the link.
+
+**Leads on the protocol (found 2026-11-14).** Open-source work means an old scan tool probably isn't needed:
+
+| Lead | What it gives | Use |
+| --- | --- | --- |
+| [doncreat0r/eeciv](https://github.com/doncreat0r/eeciv) (MIT license) | A working Ford DCL implementation on an ATmega324P (same family as the Nano). It uses a MAX485 RS-485 transceiver on the data pair. It has a "CART" mode at 9600 baud and a "UART" mode at 2400, plus a probe that tries 2400, 4800, 9600 and 19200 | **Main lead.** Read it and port the handshake. The MIT license allows reuse with credit |
+| [0Maxbon0/sme105-dcl-studio](https://github.com/0Maxbon0/sme105-dcl-studio) | Active EEC-IV DCL project (1998 Escort, ESP32 + MAX487). Notes: DCL is believed to be **request/response**, so passive listening likely shows nothing. Public material points to **8N2** framing at 9600 or 19200 baud | Reference only: no open-source license, so don't copy code. Its notes shape the test plan |
+| [flxkrmr/eec-iv-reader-arduino](https://github.com/flxkrmr/eec-iv-reader-arduino) and [babroval/ford-eec-iv-diagnostic](https://github.com/babroval/ford-eec-iv-diagnostic) | Arduino-based and PC-based EEC-IV diagnostic tools | Read for a second view of the protocol; check their licenses before reusing anything |
+| [EECTuning.org](https://eectuning.org/forums/viewtopic.php?t=23067&start=30) forum and document library | An experienced member says DCL runs on computers with the "CART" chip, and Ford's LHBH1 strategy document describes the protocol | Deepest technical source. Ask there with this computer's catalog code |
+| [FoCOM](https://auto-diagnostics.info/pdf/focom-manual-en.pdf) (currently sold interface) | Lists DCL (CART) over RS-485 for 1988–1996 Fords | Modern alternative to an old scan tool, if the open-source route stalls: connect it and record its traffic |
+| [Ford EEC (Wikipedia)](https://en.wikipedia.org/wiki/Ford_EEC) | Confirms that early-1990s models with DCL have 2 extra data wires at the diagnostic connector | Background |
+
+**The catch:** almost all of this was done on European and South American Fords. Nobody has confirmed that a US 1994 truck computer speaks the same version of the protocol. The circuit numbers match (914/915), but only some computers have the CART chip. So the computer's catalog code, from its label, is the first thing to look up.
+
+**Hardware:** MAX485 modules have been bought (5 V, which matches the ELEGOO Nano: ATmega328P, CH340, USB-C). Planned wiring, not yet built:
+
+- The Nano's hardware serial port is used by USB, so the data link runs on two other pins with software serial. That's fine at 9600; workable at 19200.
+- MAX485 **RO** to the Nano's receive pin and **DI** to its transmit pin. **RE and DE** tied together to one Nano pin, to switch between talking and listening. **VCC** to 5 V, **GND** to Nano GND and signal return.
+- **A and B** go to the tan/orange (914) and pink/light blue (915) wires. Polarity is unknown. Swapping them is harmless; it just won't talk until they're the right way round.
+- **Before connecting A and B:** with the key on, measure both data wires to ground. They should sit between 0 and 5 V. If either reads near 12 V, stop.
+- A new sketch mode (or a second sketch) would pass bytes between USB and the data link, so the laptop or tablet does the protocol work, the same split as the code reader.
 
 **Path B, sensor taps.** This works no matter what the computer supports. A small board of voltage dividers and input protection feeds the Nano's inputs from the sensor wires, tapped in parallel without cutting anything. The 1994 7.5L pinout ([pinout-1994-7.5L.md](pinout-1994-7.5L.md)) lists every sensor wire by pin and color; Probst's pinout (p. 137) and sensor signal ranges (p. 217) give the starting list. For example, the computer flags the coolant sensor when its signal leaves 4–91% of the 5 V reference. This reads what the sensors say, but not values the computer calculates (fuel trim, spark advance). Others have landed on the same fallback ([ford-trucks.com](https://www.ford-trucks.com/forums/1036028-tuning-our-ford-obdi-eec-iv-qh-tweecer-others-2.html)).
 
@@ -75,7 +96,10 @@ The 1994 7.5L pickup wiring diagram shows a data pair from the computer (pin 9, 
 **Decision gates:**
 
 1. **Gate 1, look at the test connector: probably passes.** The 1994 7.5L pickup diagram shows the data pair wired. On the van, confirm a tan/orange and a pink/light blue wire in the 6-cavity connector. If both are there, go to Gate 2. If the van turns out not to have them, skip to Path B.
-2. **Gate 2, does the computer answer?** If a DCL-capable scan tool shows live data on this motorhome, record and decode its traffic (Path A). If not, go to Path B.
+2. **Gate 2, does the computer answer?**
+    1. Look up the computer's catalog code (from its label) on EECTuning and in the open-source projects' notes. Does it have the CART chip?
+    2. With the MAX485 on the breadboard, send the doncreat0r-style handshake at 2400, 4800, 9600 and 19200 baud (8N2 as well as 8N1), in both A/B polarities. Remember it's request/response: silence on a passive listen proves nothing.
+    3. If the computer answers, decode the frames into values (Path A). If it never answers, try a FoCOM interface or a period scan tool and record its traffic. If that's not worth it, go to Path B.
 3. **Gate 3, is Path B worth it?** Only if the Phase 1 codes haven't found the problem and a sensor reading would settle it.
 
 ## Hardware and parts additions
@@ -84,11 +108,12 @@ These are on top of the existing parts list. Phase 1 needs one of the two link o
 
 | Item | For | Notes |
 | --- | --- | --- |
-| USB-C OTG adapter (USB-C male to USB-A female), or a USB-C to USB-C cable | Phase 1, USB link | The tablet powers the Nano |
+| USB-C to USB-C cable (the ELEGOO Nano has USB-C) | Phase 1, USB link | The tablet powers the Nano; no OTG adapter needed |
 | HC-05 Bluetooth module (classic Bluetooth, not BLE) | Phase 1, Bluetooth link | Chrome on Android uses classic Bluetooth serial, so a BLE-only module such as the HM-10 won't work |
 | 1 kΩ and 2 kΩ resistors | Phase 1, Bluetooth link | Drops the Nano's 5 V transmit line to the 3.3 V the HC-05 expects |
 | USB power for the Nano (dash 12 V USB adapter or a power bank) | Phase 1, Bluetooth link | With Bluetooth the tablet no longer powers the Nano |
-| Used DCL-capable scan tool (Actron, Equus or similar from the era) | Phase 2, Path A | To confirm the computer sends live data, and to record its messages |
+| MAX485 RS-485 module, 5 V (**bought**) | Phase 2, Path A | Connects the Nano to the data pair (914/915) |
+| FoCOM interface, or a used DCL-capable scan tool | Phase 2, Path A, only if the open-source route stalls | To confirm the computer sends live data, and to record its messages |
 | Divider resistors, protection diodes, perfboard, back-probe pins | Phase 2, Path B | Exact list after the sensor wiring is confirmed |
 
 Start with the USB link, which needs no pairing and no extra power. Add Bluetooth once Phase 1 works, mainly so the running test can be done from the driver's seat.
@@ -114,7 +139,7 @@ Every real test's raw timing is saved, so a bad decode can be fixed later withou
 - **No signal at a campsite.** The page installs and caches itself, so it runs offline once loaded.
 - **Engine ID on this 3-digit computer** is unconfirmed (Probst p. 224 suggests it may be skipped). The prompts handle both cases; step 5 settles it.
 - **Connector layout:** pin numbers are confirmed by Probst, but cavity positions on this motorhome aren't. The meter checks and the paperclip test come first.
-- **Live data:** the data link is probably wired (pickup diagram), but its message format is unknown until a scan tool's traffic is recorded. Path B still gives sensor readings if that stalls.
+- **Live data:** the data link is probably wired (pickup diagram). Open-source DCL work exists, but mostly on European Fords. Whether this US truck computer speaks the same protocol is unconfirmed. Path B still gives sensor readings if that stalls.
 - **Pickup vs van:** the pinout and colors come from the 1994 7.5L pickup diagram. The van diagram hasn't been found.
 - **Open question:** what problems is the motorhome having? That decides how much Phase 2 is worth.
 
@@ -122,6 +147,12 @@ Every real test's raw timing is saved, so a bad decode can be fixed later withou
 
 - Charles O. Probst, *Ford Fuel Injection & Electronic Engine Control, 1988–1993*, Bentley Publishers (ISBN-10 0837603013): pp. 137 (wiring and pinout), 216–228 (Quick Test), 267–271 (3-digit codes)
 - *1994 Engine Performance Wiring Diagrams – Truck*, Fig. 21, Wiring Diagram (Pickup – 7.5L – 1 of 2), no. 94E66237, transcribed in [pinout-1994-7.5L.md](pinout-1994-7.5L.md)
+- [doncreat0r/eeciv: Ford DCL protocol implementation on ATMega324P (MIT)](https://github.com/doncreat0r/eeciv)
+- [0Maxbon0/sme105-dcl-studio: EEC-IV DCL research notes](https://github.com/0Maxbon0/sme105-dcl-studio)
+- [flxkrmr/eec-iv-reader-arduino](https://github.com/flxkrmr/eec-iv-reader-arduino) and [babroval/ford-eec-iv-diagnostic](https://github.com/babroval/ford-eec-iv-diagnostic)
+- [EECTuning.org: DCL runs on CART-capable computers; LHBH1 strategy document](https://eectuning.org/forums/viewtopic.php?t=23067&start=30)
+- [FoCOM user manual: DCL (CART) over RS-485, 1988–1996](https://auto-diagnostics.info/pdf/focom-manual-en.pdf)
+- [Wikipedia: Ford EEC (DCL models have 2 extra data wires)](https://en.wikipedia.org/wiki/Ford_EEC)
 - [Notebookcheck: Chrome 148 for Android adds Web Serial](https://www.notebookcheck.net/Chrome-148-Beta-for-Android-adds-Web-Serial-SharedWorker-support.1269721.0.html)
 - [Chromium: Web Serial over Bluetooth on Android](https://groups.google.com/a/chromium.org/g/blink-dev/c/BqUGCcurReE)
 - [TestMu: Web Serial browser support](https://www.testmuai.com/web-technologies/web-serial/)
